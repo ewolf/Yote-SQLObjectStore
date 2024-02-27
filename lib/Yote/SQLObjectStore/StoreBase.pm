@@ -1,6 +1,6 @@
-package Yote::SQLObjectStore::Base;
+package Yote::SQLObjectStore::StoreBase;
 
-use v5.16;
+use 5.16.0;
 use warnings;
 
 no warnings 'uninitialized';
@@ -27,8 +27,9 @@ use constant {
     CACHE     => 4,
     LOCKER    => 5,
     ROOT_PACKAGE => 6,
+    STATEMENTS => 7,
 
-    DATA => 1,
+    FORCE_INSERT => 1,
 };
 
 =head1 NAME
@@ -83,18 +84,20 @@ Options
 
 =cut
 
-sub open_object_store {
+sub new {
     my( $pkg, %args ) = @_;
 
-    my $dbh = $args{DBH} // $pkg->connect_sql( %args );
+    my $file = $args{BASE_DIRECTORY} or die __PACKAGE__."::new requires 'BASE_DIRECTORY' argument";
+
+    my $dbh = $pkg->connect_sql( %args );
 
     my $base_dir = $args{BASE_DIRECTORY} or die __PACKAGE__."::open_object_store called without a BASE_DIRECTORY";
 
-    my $root_package = $args{ROOT_PACKAGE} or die __PACKAGE__."::open_object_store called without a ROOT_PACKAGE";
+    my $root_package = $args{ROOT_PACKAGE};
     
     my $locker = Yote::Locker->new( "$base_dir/LOCKER" );
     
-    my $store = bless [
+    return bless [
         $dbh,   # 0
         {},     # 1
         {},     # 2
@@ -102,12 +105,28 @@ sub open_object_store {
         {},     # 4
         $locker,
         $root_package,
+        {}
         ], $pkg;
+}
 
-    $locker->lock;
-    $store->fetch_root;
-    $locker->unlock;
-    return $store;
+sub open {
+    my $self = shift;
+
+    $self->lock;
+    $self->fetch_root;
+    $self->unlock;
+
+    return $self;
+}
+
+sub statements {
+    my $self = shift;
+    return $self->[STATEMENTS];
+}
+
+sub dbh {
+    my $self = shift;
+    return $self->[DB_HANDLE];
 }
 
 =head2 lock()
@@ -138,10 +157,9 @@ sub fetch_root {
     my $self = shift;
     my $root_package = $self->[ROOT_PACKAGE];
 
-#    $record_store->lock;
     my $root_id = 1;
 
-    my $root = $self->_fetch( $root_id );
+    my $root = $self->fetch( $root_id );
 
     if ($root) {
         return $root;
@@ -153,11 +171,11 @@ sub fetch_root {
         {},
         $self,
         {},
-        ], 'Yote::ObjectStore::Obj';
-    
-    # special save here, just stow it 
-    $record_store->stow( $root->__freezedry, $root_id );
-    $self->_log_history( "SAVE", $root_id, $root->__logline );
+        ], $root_package;
+
+    $self->store_obj_data_to_sql( $root, FORCE_INSERT );
+
+    $root->_init;
 
     $self->_weak( $root_id, $root );
     
@@ -175,53 +193,15 @@ If not given an object, saves all objects marked dirty.
 
 sub save {
     my ($self,$obj) = @_;
+    my @dirty = $obj ? ($obj) : values %{$self->[DIRTY]};
 
-    my $record_store = $self->[RECORD_STORE];
-
-#    $record_store->lock;
-
-    $record_store->use_transaction unless $self->[OPTIONS]{no_transactions};
-
-    my $dirty = $self->[DIRTY];
-
-    if ($obj) {
-        # kind of dangerous to overall integrity
-        # use with caution
-        my $r = ref( $obj );
-        if ($r eq 'ARRAY') {
-            $obj = tied @$obj;
-        }
-        elsif ($r eq 'HASH') {
-            $obj = tied %$obj;
-        }
-        my $id = $obj->id;
-
-        my $froze = $obj->__freezedry;
-
-        $self->_log_history( "SAVE", $id, $obj->__logline );
-        $record_store->stow( $froze, $id );
-        delete $dirty->{$id};
-    } else {
-        my @ids_to_save = keys %$dirty;
-
-        for my $id (@ids_to_save) {
-            my $obj = delete $dirty->{$id};
-            $obj = $obj->[0];
-            my $r = ref( $obj );
-            if ($r eq 'ARRAY') {
-                $obj = tied @$obj;
-            }
-            elsif ($r eq 'HASH') {
-                $obj = tied %$obj;
-            }
-            my $froze = $obj->__freezedry;
-            $self->_log_history( "SAVE", $id, $obj->__logline );
-            $record_store->stow( $froze, $id );
-        }
-        %$dirty = ();
+    # start transaction
+    for my $pair (@dirty) {
+        $self->store_obj_data_to_sql( $pair->[1] );
     }
-    $record_store->commit_transaction unless $self->[OPTIONS]{no_transactions};
+    %{$self->[DIRTY]} = ();
 
+    # end transaction
     return 1;
 } #save
 
@@ -234,7 +214,23 @@ Returns the object with the given id.
 
 sub fetch {
     my ($self, $id) = @_;
-    return $self->_fetch( $id );
+    my $obj;
+    if (exists $self->[DIRTY]{$id}) {
+        $obj = $self->[DIRTY]{$id}[0];
+    } else {
+        $obj = $self->[WEAK]{$id};
+    }
+ 
+    return $obj if $obj;
+
+
+    $obj = $self->fetch_obj_from_sql( $id );
+
+    return undef unless $obj;
+
+    $self->_weak( $id, $obj );
+
+    return $obj;
 }
 
 sub fetch_path {
@@ -288,34 +284,6 @@ sub ensure_path {
     } 
 }
 
-sub _fetch {
-    my ($self, $id) = @_;
-
-    
-    
-
-    my $obj;
-    if (exists $self->[DIRTY]{$id}) {
-        $obj = $self->[DIRTY]{$id}[0];
-    } else {
-        $obj = $self->[WEAK]{$id};
-    }
- 
-    return $obj if $obj;
-    
-    my $record_store = $self->[RECORD_STORE];
-
-    my ( $update_time, $creation_time, $record ) = $record_store->fetch( $id );
-
-    unless (defined $record) {
-        return undef;
-    }
-    $obj = $self->_reconstitute( $id, $record, $update_time, $creation_time );
-    $self->_weak( $id, $obj );
-    return $obj;
-} #fetch
-
-
 =head2 tied_obj( $obj )
 
 If the object is tied 
@@ -329,6 +297,7 @@ sub tied_obj {
     my $tied = $r eq 'ARRAY' ? tied @$item
 	: $r eq 'HASH' ? tied %$item
 	: $item;
+    print STDERR Data::Dumper->Dump([$r,$item,"TIED OBJ <$tied>"]);
     return $tied;
 } #tied_obj
 
@@ -438,11 +407,13 @@ sub id {
         }
         my $id = $self->_new_id;
 	my @contents = @$item;
-        @$item = ();  # this is where the leak was coming from
+        @$item = ();  # prevents a memory leak
+        
+        $self->tie_array( $item, $id, \@contents );
         tie @$item, 'Yote::ObjectStore::Array', $id, $self;
-	push @$item, @contents;
+	push @$item, map { defined $_ ? "$_" : undef } @contents;
         $self->_weak( $id, $item );
-        $self->_dirty( $id );
+        $self->dirty( $id );
         return $id;
     }
     elsif ($r eq 'HASH') {
@@ -456,9 +427,10 @@ sub id {
         tie %$item, 'Yote::ObjectStore::Hash', $id, $self;
         $self->_weak( $id, $item );
 	for my $key (keys %contents) {
-	    $item->{$key} = $contents{$key};
+            my $v = $contents{$key};
+	    $item->{$key} = defined $v ? "$v" : undef;
 	}
-        $self->_dirty( $id );
+        $self->dirty( $id );
         return $id;
     }
     elsif ($r && $item->isa( 'Yote::ObjectStore::Obj' )) {
@@ -482,7 +454,7 @@ sub _weak {
 # reference, and is stored by the id
 # in the DIRTY cache
 #
-sub _dirty {
+sub dirty {
     my ($self,$id,$obj) = @_;
     unless ($self->[WEAK]{$id}) {
 	$self->_weak($id,$obj);
@@ -494,87 +466,7 @@ sub _dirty {
     my $tied = $self->tied_obj( $target );
 
     $self->[DIRTY]{$id} = [$target,$tied];
-} #_dirty
-
-#
-# Convert the argument into an internal representation.
-# if it is a reference, 'r' + id
-# if it is undef, 'u'
-# otherwise, 'v' + value
-#
-sub _xform_in {
-    my ($self,$item) = @_;
-    my $r = ref( $item );
-    if ($r) {
-        return 'r' . $self->id( $item );
-    }
-    elsif (defined $item) {
-        return "v$item";
-    }
-    else {
-        return 'u';
-    }
-} #_xform_in
-
-# used by Obj,Array,Hash
-# given an internal designation, return what it is
-# if 'r' + id, return object of that id
-# if 'v' + value, return the value string
-# if 'u', return undef
-sub _xform_out {
-    my ($self,$str) = @_;
-    return undef unless $str;
-    my $tag = substr( $str, 0, 1 );
-    my $val = substr( $str, 1 );
-    if ($tag eq 'r') {
-        #reference
-        my $item = $self->fetch( $val );
-        return $item;
-    }
-    elsif ($tag eq 'v') {
-        return $val;
-    }
-    return undef;
-} #_xform_out
-
-sub _reconstitute {
-    my ($self, $id, $data, $update_time, $creation_time ) = @_;
-
-    my $class_length = unpack "I", $data;
-    (undef, my $class) = unpack "I(a$class_length)", $data;
-
-    my $clname = $class;
-    $clname =~ s/::/\//g;
-
-    require "$clname.pm";
-
-    return $class->__reconstitute( $id, $data, $self, $update_time, $creation_time );
-
-} #_reconstitute
-
-sub _new_id {
-    my $self = shift;
-    my $record_store = $self->[RECORD_STORE];
-    my $id = $self->[RECORD_STORE]->next_id;
-    return $id;
-} #_new_id
-
-
-sub _log_history {
-    my $logger = shift->[LOGGER];
-    $logger && $logger->history( @_ );
-}
-
-=item max_id
-
-Returs the highest id in the store.
-
-=cut
-sub max_id {
-    my $rs = shift->[RECORD_STORE];
-    my $c = $rs->record_count;
-    return $c;
-}
+} #dirty
 
 =item new_obj( data, class )
 
@@ -607,7 +499,7 @@ sub new_obj {
         $self,
 	{},
         ], $class;
-    $self->_dirty( $id, $obj );
+    $self->dirty( $id, $obj );
     $obj->_init;
     $self->_weak( $id, $obj );
 

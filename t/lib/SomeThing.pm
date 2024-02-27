@@ -1,5 +1,5 @@
 package SomeThing;
 
-use base 'Yote::ObjectStore::Obj';
+use base 'Yote::SQLObjectStore::SQLite::Obj';
 
 1;

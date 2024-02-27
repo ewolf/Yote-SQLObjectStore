@@ -16,7 +16,6 @@ use Test::More;
 use Tainer;
 use NotApp;
 
-
 my %args = (
     user     => 'wolf',
     password => 'B00gerzaais',
@@ -29,16 +28,104 @@ $factory->setup;
 # -------------------------------------------------------------
 
 subtest 'reference and reopen test' => sub {
-    my ($dir, $dbh) = $factory->new_db_handle;
+    my $dir = $factory->new_db_handle;
 
-    my $object_store = Yote::ObjectStore->open_object_store( 
-        BASE_DIRECTORY => $dir,
-        DBH            => $dbh,
-        );
+    {
+        my $object_store = Yote::SQLObjectStore::SQLite->new(
+            BASE_DIRECTORY => $dir,
+            );
+        $object_store->make_all_tables;
+        $object_store->open;
+        $object_store->lock;
+        is ($object_store->record_count, 3, 'root record and its hashes in store');
 
-    $object_store->lock;
-    is ($record_store->record_count, 1, 'just root record in store');
+        my $r1 = $object_store->fetch_root;
+        ok( $r1, 'got a root' );
+        my $r2 = $object_store->fetch_root;
+        is ($r1, $r2, "single reference for fetch root" );
+        ok ($r1 == $r2, "same reference compared numerically" );
+        ok (!($r1 != $r2), "same reference compared as not equal numerically" );
+        ok (!($r1 == 1), "reference does not equal to a number" );
+        ok ($r1 != 1, "reference is not equal to a number" );
+        ok ($r1 eq $r2, "same reference compared as strings" );
+        ok (!($r1 ne $r2), "same reference compared as not equal strings" );
+        ok ($r1 != 1, "not equal to a number" );
+        ok (! ($r1 eq 1), "not equal to a string" );
+        ok ($r1 ne 1, "not the same as a number" );
 
+        my $root_vals = $r1->get_val_hash;
+        is_deeply( $root_vals, {}, 'val hash starts empty' );
+        
+        $root_vals->{foo} = 'bar';
+        $root_vals->{bar} = 'gaz';
+
+        is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it' );
+
+print STDERR Data::Dumper->Dump(["------------"]);
+        $object_store->save;
+print STDERR Data::Dumper->Dump(["-------=====------------"]);
+        $object_store->unlock;
+    }
+
+    {
+    # reopen and make sure its the same stuff
+        my $object_store = Yote::SQLObjectStore::SQLite->new(
+            BASE_DIRECTORY => $dir,
+            );
+        $object_store->open;
+        my $root_vals = $object_store->fetch_root->get_val_hash;
+        is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it after reopen' );
+    }
+
+
+    # $r1->get( 'burger', 'time' );
+    # is ($r2->get( 'burger' ), 'time', 'get with default called' );
+    # my $a1 = $r1->get_array( [ 1, 2, 3 ] );
+    # is_deeply ($a1, [ 1, 2, 3 ], "get array with defaults" );
+
+};
+
+done_testing;
+exit;
+
+package Factory;
+
+use Yote::Locker;
+use Yote::RecordStore;
+use File::Temp qw/ :mktemp tempdir /;
+
+sub new_db_name {
+    my ( $self ) = @_;
+    my $dir = tempdir( CLEANUP => 1 );
+    return $dir;
+} #new_db_name
+
+sub new {
+    my ($pkg, %args) = @_;
+    return bless { args => {%args}, dbnames => {} }, $pkg;
+}
+
+sub new_db_handle {
+    my ($self) = @_;
+    
+    # make a test db
+    my $dir = $self->{args}{directory} = $self->new_db_name;
+    return $dir;
+}
+sub reopen {
+    my( $cls, $oldstore ) = @_;
+    my $dir = $oldstore->[0];
+    my $locker = Yote::Locker->new( "$dir/LOCK" );
+    return Yote::RecordStore->open_store( directory => $dir, locker => $locker );
+}
+sub teardown {
+    my $self = shift;
+}
+sub setup {
+    my $self = shift;
+}
+
+__END__
     my $r1 = $object_store->fetch_root;
     ok( $r1, 'got a root' );
     my $r2 = $object_store->fetch_root;
@@ -644,40 +731,3 @@ sub throws_ok {
     like( $@, $erex, $msg );
 } #throws_ok
 
-package Factory;
-
-use Yote::Locker;
-use Yote::RecordStore;
-use File::Temp qw/ :mktemp tempdir /;
-
-sub new_db_name {
-    my ( $self ) = @_;
-    my $dir = tempdir( CLEANUP => 1 );
-    return $dir;
-} #new_db_name
-
-sub new {
-    my ($pkg, %args) = @_;
-    return bless { args => {%args}, dbnames => {} }, $pkg;
-}
-
-sub new_db_handle {
-    my ($self) = @_;
-    
-    # make a test db
-    my $dir = $self->{args}{directory} = $self->new_db_name;
-
-    return ($dir, Yote::SQLObjectStore::SQLite->connect_sql( file => "$dir/SQLite.db" ));
-}
-sub reopen {
-    my( $cls, $oldstore ) = @_;
-    my $dir = $oldstore->[0];
-    my $locker = Yote::Locker->new( "$dir/LOCK" );
-    return Yote::RecordStore->open_store( directory => $dir, locker => $locker );
-}
-sub teardown {
-    my $self = shift;
-}
-sub setup {
-    my $self = shift;
-}

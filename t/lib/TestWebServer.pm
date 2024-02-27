@@ -3,8 +3,8 @@ package TestWebServer;
 use strict;
 use warnings;
 
-use HTTP::Server::Simple::CGI;
-use base 'HTTP::Server::Simple::CGI';
+#use HTTP::Server::Simple::CGI;
+#use base 'HTTP::Server::Simple::CGI';
 
 #use Yote;
 

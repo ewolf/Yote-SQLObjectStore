@@ -1,4 +1,4 @@
-package Yote::ObjectStore::Array;
+package Yote::SQLObjectStore::Array;
 
 use 5.14.0;
 
@@ -9,16 +9,22 @@ use Tie::Array;
 
 use constant {
     ID          => 0,
-    DATA        => 1,
-    OBJ_STORE   => 2,
+    TABLE       => 1,
+    DATA_TYPE   => 2,
+    DATA        => 3,
+    OBJ_STORE   => 4,
 };
 
-sub _dirty {
+sub dirty {
     my $self = shift;
-    $self->[OBJ_STORE]->_dirty( $self->[ID], $self );
+    $self->[OBJ_STORE]->dirty( $self->[ID], $self );
 }
 
-sub __data {
+sub table_name {
+    return shift->[TABLE];
+}
+
+sub data {
     return shift->[DATA];
 }
 
@@ -29,10 +35,12 @@ sub id {
 sub EXTEND {}
 
 sub TIEARRAY {
-    my( $pkg, $id, $store, $meta, @list ) = @_;
+    my( $pkg, $id, $store, $table_name, $data_type, $meta, @list ) = @_;
     
     return bless [
         $id,
+        $table_name,
+        $data_type,
         [@list],
 	$store,
 	$meta,
@@ -45,7 +53,7 @@ sub FETCH {
 
     my $data = $self->[DATA];
     return undef if $idx >= @$data;
-    return $self->[OBJ_STORE]->_xform_out( $self->[DATA][$idx] );
+    return $self->[OBJ_STORE]->xform_out( $self->[DATA][$idx], $self->[DATA_TYPE] );
     
 } #FETCH
 
@@ -55,9 +63,9 @@ sub FETCHSIZE {
 
 sub STORE {
     my( $self, $idx, $val ) = @_;
-    my $inval = $self->[OBJ_STORE]->_xform_in( $val );
+    my $inval = $self->[OBJ_STORE]->xform_in( $val, $self->[DATA_TYPE] );
     if ($inval ne $self->[DATA][$idx]) {
-        $self->_dirty;
+        $self->dirty;
     }
     $self->[DATA][$idx] = $inval;
     return $val;
@@ -78,116 +86,54 @@ sub EXISTS {
 
 sub DELETE {
     my( $self, $idx ) = @_;
-    (exists $self->[DATA]->[$idx]) && $self->_dirty;
+    (exists $self->[DATA]->[$idx]) && $self->dirty;
     my $val = delete $self->[DATA][$idx];
-    return $self->[OBJ_STORE]->_xform_out( $val );
+    return $self->[OBJ_STORE]->xform_out( $val, $self->[DATA_TYPE] );
 } #DELETE
 
 sub CLEAR {
     my $self = shift;
     my $data = $self->[DATA];
-    @$data && $self->_dirty;
+    @$data && $self->dirty;
     @$data = ();
 }
 sub PUSH {
     my( $self, @vals ) = @_;
     my $data = $self->[DATA];
     if (@vals) {
-        $self->_dirty;
+        $self->dirty;
     }
     my $ret =  push @$data,
-        map { $self->[OBJ_STORE]->_xform_in($_) } @vals;
+        map { $self->[OBJ_STORE]->xform_in($_, $self->[DATA_TYPE]) } @vals;
     return $ret;
 }
 sub POP {
     my $self = shift;
     my $item = pop @{$self->[DATA]};
-    $self->_dirty;
-    return $self->[OBJ_STORE]->_xform_out( $item );
+    $self->dirty;
+    return $self->[OBJ_STORE]->xform_out( $item, $self->[DATA_TYPE] );
 }
 sub SHIFT {
     my( $self ) = @_;
     my $item = shift @{$self->[DATA]};
-    $self->_dirty;
-    return $self->[OBJ_STORE]->_xform_out( $item );
+    $self->dirty;
+    return $self->[OBJ_STORE]->xform_out( $item, $self->[DATA_TYPE] );
 }
 
 sub UNSHIFT {
     my( $self, @vals ) = @_;
     my $data = $self->[DATA];
-    @vals && $self->_dirty;
+    @vals && $self->dirty;
     return unshift @$data,
-	map { $self->[OBJ_STORE]->_xform_in($_) } @vals;
+	map { $self->[OBJ_STORE]->xform_in($_, $self->[DATA_TYPE]) } @vals;
 }
 
 sub SPLICE {
     my( $self, $offset, $remove_length, @vals ) = @_;
     my $data = $self->[DATA];
-    $self->_dirty;
-    return map { $self->[OBJ_STORE]->_xform_out($_) } splice @$data, $offset, $remove_length,
-	map { $self->[OBJ_STORE]->_xform_in($_) } @vals;
+    $self->dirty;
+    return map { $self->[OBJ_STORE]->xform_out($_, $self->[DATA_TYPE]) } splice @$data, $offset, $remove_length,
+	map { $self->[OBJ_STORE]->xform_in($_, $self->[DATA_TYPE]) } @vals;
 } #SPLICE
-
-sub __logline {
-    # produces a string : $id $classname p1 p2 p3 ....
-    # where the p parts are quoted if needed 
-
-    my $self = shift;
-    
-    my (@data) = ( map { $_ =~ /[\s\n\r]/g ? '"'.MIME::Base64::encode( $_, '' ).'"' : $_ }
-                   map { defined($_) ? $_ : 'u' } 
-                   @{$self->__data});
-    return join( " ", $self->id, ref( $self ), @data );
-}
-
-sub __freezedry {
-    # packs into
-    #  I - length of package name (c)
-    #  a(c) - package name
-    #  L - object id
-    #  I - number of components (n)
-    #  I(n) lenghts of components
-    #  a(sigma n) data 
-    my $self = shift;
-
-    my $r = ref( $self );
-    my $c = length( $r );
-    
-    my (@data) = (map { defined($_) ? $_ : 'u' } @{$self->__data});
-    my $n = scalar( @data );
-
-    my (@lengths) = map { do { use bytes; length($_) } } @data;
-
-    my $pack_template = "I(a$c)LI(I$n)" . join( '', map { "(a$_)" } @lengths);
-
-    return pack $pack_template, $c, $r, $self->id, $n, @lengths, @data;
-}
-
-sub __reconstitute {
-    my ($self, $id, $data, $store, $update_time, $creation_time ) = @_;
-
-    my $unpack_template = "I";
-    my $c = unpack $unpack_template, $data;
-
-    $unpack_template .= "(a$c)";
-    (undef, my $class) = unpack $unpack_template, $data;
-
-    $unpack_template .= "LI";
-    (undef, undef, undef, my $n) = unpack $unpack_template, $data;
-    $unpack_template .= "I" x $n;
-    (undef, undef, undef, undef, my @sizes) = unpack $unpack_template, $data;
-
-    $unpack_template .= join( "", map { "(a$_)" } @sizes );
-
-    my( @parts ) = unpack $unpack_template, $data;
-
-    # remove beginning stuff
-    splice @parts, 0, ($n+4);
-
-    my @array;
-    tie @array, 'Yote::ObjectStore::Array', $id, $store, 
-        {updated => $update_time, created => $creation_time}, @parts;
-    return \@array;
-}
 
 "ARRAY ARRAY ARRAY";

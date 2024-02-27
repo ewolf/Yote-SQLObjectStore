@@ -1,6 +1,6 @@
 package Yote::SQLObjectStore::Obj;
 
-use 5.14.0;
+use 5.16.0;
 
 no warnings 'uninitialized';
 
@@ -11,6 +11,8 @@ use constant {
     DATA     => 1,
     STORE    => 2,
     VOL      => 3,
+    TABLE    => 4,
+    COLS     => 5,
 };
 
 #
@@ -26,23 +28,50 @@ use overload
     fallback => 1;
 
 #
+# columns as a hash of column name -> "SQL type" ||  { type => "SQL type", ... extra indexing stuff i guess? }
+#
+sub cols {
+    my $me = shift;
+    my $pkg = ref($me) || $me;
+    no strict 'refs';
+    return {%{"${pkg}::cols"}};
+}
+
+# returns column names, alphabetically sorted
+sub col_names {
+    my $cols = shift->cols;
+    return sort keys %$cols;
+}
+
+# return table name, which is the reverse of 
+# the package path (most specific first)
+# plus any suffix parts
+sub table_name {
+    my ($me, @suffix) = @_;
+    my $pkg = ref($me) || $me;
+    my (@parts) = reverse split /::/, $pkg;
+    return join( "_", @parts, @suffix );
+}
+
+sub make_table_sql {
+    die "override me";
+}
+
+#
 # Stub methods to override
 #
 sub _init {}
 sub _load {}
 
 #
-# private stuff
-#
-sub __data {
-    return shift->[DATA];
-}
-
-#
 # Instance methods
 #
 sub id {
     return shift->[ID];
+}
+
+sub data {
+    return shift->[DATA];
 }
 
 sub store {
@@ -53,27 +82,50 @@ sub fields {
     return [keys %{shift->[DATA]}];
 }
 
-sub get {
-    my ($self,$field,$default) = @_;
-    if ((! exists $self->[DATA]{$field}) and defined($default)) {
-	return $self->set($field,$default);
-    }
-    return $self->[STORE]->_xform_out( $self->[DATA]{$field} );
-} #get
+sub dirty {
+    my $self = shift;
+    $self->[STORE]->dirty( $self->[ID], $self );
+}
+
 
 sub set {
     my ($self,$field,$value) = @_;
-    my $inval = $self->[STORE]->_xform_in($value);
-    my $dirty = $self->[DATA]{$field} ne $inval;
-    $self->[DATA]{$field} = $inval;
-    $dirty && $self->_dirty;
-    return $value;
-} #set
 
-sub _dirty {
-    my $self = shift;
-    $self->[STORE]->_dirty( $self->[ID], $self );
+    # check the col
+    my $cols = $self->cols;
+    my $def = $cols->{$field};
+
+    die "No field '$field' in ".ref($self) unless $def;
+
+    my $store = $self->store;
+
+    my ($field_value, $item) = $store->xform_in( $value, $def );
+
+    my $data = $self->data;
+
+    my $dirty = $data->{$field} ne $field_value;
+
+    $data->{$field} = $field_value;
+
+    $dirty && $self->dirty;
+
+    return $item;    
 }
+
+sub get {
+    my ($self,$field,$default) = @_;
+
+    my $data = $self->data;
+    if ((! exists $data->{$field}) and defined($default)) {
+	return $self->set($field,$default);
+    }
+    my $cols = $self->cols;
+    my $def = $cols->{$field};
+    
+    return $self->store->xform_out( $data->{$field}, $def );
+
+} #get
+
 
 sub AUTOLOAD {
     my( $s, $arg ) = @_;
@@ -177,85 +229,8 @@ sub AUTOLOAD {
 
 } #AUTOLOAD
 
-sub __logline {
-    # produces a string : $id $classname p1 p2 p3 ....
-    # where the p parts are quoted if needed 
-
-    my $self = shift;
-
-    my $data = $self->__data;    
-    my (@data) = (map { my $v = $data->{$_};
-                        $_ => $v =~ /[\s\n\r]/g ? '"' . MIME::Base64::encode( $v, '' ).'"' : $v
-                      }
-                  keys %$data);
-    return join( " ", $self->id, ref( $self ), @data );
-}
-
-sub __freezedry {
-    # packs into
-    #  I - length of package name (c)
-    #  a(c) - package name
-    #  L - object id
-    #  I - number of components (n)
-    #  I(n) lenghts of components
-    #  a(sigma n) data 
-    my $self = shift;
-
-    my $r = ref( $self );
-    my $c = length( $r );
-    
-    my $data = $self->__data;
-
-    my (@data) = (map { $_ => $data->{$_} } keys %$data);
-    my $n = scalar( @data );
-
-    my (@lengths) = map { do { use bytes; length($_) } } @data;
-
-    my $pack_template = "I(a$c)LI(I$n)" . join( '', map { "(a$_)" } @lengths);
-
-    return pack $pack_template, $c, $r, $self->id, $n, @lengths, @data;
-}
-
-sub __reconstitute {
-    my ($self, $id, $data, $store, $update_time, $creation_time ) = @_;
-
-    my $unpack_template = "I";
-
-    my $class_length = unpack $unpack_template, $data;
-
-    $unpack_template .= "(a$class_length)LI";
-    my (undef, $class, $stored_id, $n) = unpack $unpack_template, $data;
-
-    $unpack_template .= "I" x $n;
-
-    my (undef, undef, undef, undef, @lengths) = unpack $unpack_template, $data;
-
-    $unpack_template .= join( '', map { "(a$_)" } @lengths );
-    
-    my( @parts ) = unpack $unpack_template, $data;
-
-    # remove beginning stuff
-    splice @parts, 0, ($n+4);
-
-    if( $class ne 'Yote::ObjectStore::Obj' ) {
-      my $clname = $class;
-      $clname =~ s/::/\//g;
-
-      require "$clname.pm";
-    }
-
-    my $obj = bless [
-        $id,
-        {@parts},
-        $store,
-        {}
-        ], $class;
-    # stuff into WEAK temporarily while LOAD happens
-    $store->_weak($id,$obj);
-    $obj->_load;
-
-    return $obj;
-
+sub load {
+    my ($pkg, $id) = @_;
 }
 
 sub vol_unset {
@@ -276,4 +251,4 @@ sub vol_set {
     $self->[VOL]{$fld} = $val;
 }
 
-"CONTAIN";
+1;

@@ -1,12 +1,11 @@
 package Widget;
 
-use strict;
+use 5.16.0;
 use warnings;
 
 use NotApp;
 
-use Yote::Obj;
-use base 'Yote::Obj';
+use base 'Yote::ObjectStore::Obj';
 
 sub hi {
     return 1, "hi there";
