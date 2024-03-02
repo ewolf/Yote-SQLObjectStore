@@ -14,7 +14,8 @@ my $builder = Module::Build->new(
     license            => 'perl',
     module_name        => 'Yote::ObjectStore',
     release_status     => 'stable',
-    test_files         => [ 't/object_store.t',
+    test_files         => [ 't/object_store_sqlite.t',
+                            't/object_store_mariadb.t',
                         ],
     requires => {
         'perl'             => 'v5.16',
