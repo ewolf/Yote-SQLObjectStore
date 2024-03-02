@@ -61,20 +61,30 @@ subtest 'reference and reopen test' => sub {
 
         is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it' );
 
-print STDERR Data::Dumper->Dump(["------------"]);
         $object_store->save;
-print STDERR Data::Dumper->Dump(["-------=====------------"]);
         $object_store->unlock;
     }
 
     {
-    # reopen and make sure its the same stuff
+        # reopen and make sure its the same stuff
         my $object_store = Yote::SQLObjectStore::SQLite->new(
             BASE_DIRECTORY => $dir,
             );
         $object_store->open;
-        my $root_vals = $object_store->fetch_root->get_val_hash;
+        my $root = $object_store->fetch_root;
+            my $root_vals = $root->get_val_hash;
         is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it after reopen' );
+
+        # now gotta get stuff in the ref, like a [], {} and obj
+        my $root_refs = $root->get_ref_hash;
+
+        # make some data structures to put in root ref hash
+        my $val_arry = $root_refs->{val_array} = $object_store->make_value_array( 1,2,3 );
+        my $ref_arry = $root_refs->{ref_array} = $object_store->make_ref_array( $root );
+        my $val_hash = $root_refs->{val_hash} = $object_store->make_value_hash( a => 1, b => 2, c => 3 );
+        my $ref_hash = $root_refs->{ref_hash} = $object_store->make_ref_hash(root => $root);
+        
+        # make some object too
     }
 
 

@@ -37,7 +37,7 @@ sub save_sql {
     my @col_names = $self->col_names;
 
     my ($sql);
-print STDERR Data::Dumper->Dump([$data,"SAVE SQL DATA"]);
+
     my @qparams = map { $data->{$_} } @col_names;
     if( $id ) {
         if ($force_insert) {

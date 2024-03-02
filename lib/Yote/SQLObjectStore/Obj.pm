@@ -99,7 +99,7 @@ sub set {
 
     my $store = $self->store;
 
-    my ($field_value, $item) = $store->xform_in( $value, $def );
+    my ($item, $field_value) = $store->xform_in_full( $value, $def );
 
     my $data = $self->data;
 
@@ -121,7 +121,7 @@ sub get {
     }
     my $cols = $self->cols;
     my $def = $cols->{$field};
-    
+    print STDERR Data::Dumper->Dump([$data,"DADA ($self)"]);
     return $self->store->xform_out( $data->{$field}, $def );
 
 } #get

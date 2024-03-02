@@ -297,7 +297,6 @@ sub tied_obj {
     my $tied = $r eq 'ARRAY' ? tied @$item
 	: $r eq 'HASH' ? tied %$item
 	: $item;
-    print STDERR Data::Dumper->Dump([$r,$item,"TIED OBJ <$tied>"]);
     return $tied;
 } #tied_obj
 
@@ -389,8 +388,6 @@ sub _id_is_referenced {
     my ($self,$id) = @_;
     return defined( $self->[WEAK]{$id} );
 }
-
-
 
 =head2 id(obj)
 

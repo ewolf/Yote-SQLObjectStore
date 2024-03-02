@@ -8,6 +8,10 @@ use base 'Yote::SQLObjectStore::StoreBase';
 
 use DBI;
 
+use constant {
+    INSERT_QUERY => "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)",
+};
+
 sub new {
     my ($pkg, %args ) = @_;
     $args{ROOT_PACKAGE} //= 'Yote::SQLObjectStore::SQLite::Root';
@@ -34,10 +38,8 @@ sub store_obj_data_to_sql {
     my ($self, $obj, $force_insert ) = @_;
 
     my $ref = $self->tied_obj($obj);
-    print STDERR Data::Dumper->Dump([$obj,$ref,"$obj,$ref UM"]);
+
     my ($id, $table, @queries) = $ref->save_sql( $force_insert );
-print STDERR Data::Dumper->Dump([$id,$table,\@queries,"OOOOFU"]);
-    warn "dont bother with prepared statements for packages yet ";
 
     if ($id) {
         # updatex object table
@@ -52,7 +54,7 @@ print STDERR Data::Dumper->Dump([$id,$table,\@queries,"OOOOFU"]);
     } else {
 
         # write to the index and get a new id
-        $id = $self->_insert_get_id( "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)", $table );
+        $id = $self->_insert_get_id( INSERT_QUERY, $table );
 
         # updatex object table
         for my $q (@queries) {
@@ -78,33 +80,48 @@ sub make_all_tables {
     $self->_query_do( "COMMIT" );
 }
 
+sub make_ref_hash {
+    my ($self, %refs) = @_;
+    my $id = $self->_insert_get_id( INSERT_QUERY, 'HASH_REF' );
+    return $self->tie_hash( {}, $id, 'REF', \%refs );
+}
+
+sub make_value_hash {
+    my ($self, %vals) = @_;
+    my $id = $self->_insert_get_id( INSERT_QUERY, 'HASH_VALUE' );
+    return $self->tie_hash( {}, $id, 'VALUE', \%vals );
+}
+
+sub make_ref_array {
+    my ($self, @refs) = @_;
+    my $id = $self->_insert_get_id( INSERT_QUERY, 'ARRAY_REF' );
+    return $self->tie_array( [], $id, 'REF', \@refs );
+}
+
+sub make_value_array {
+    my ($self, @vals) = @_;
+    my $id = $self->_insert_get_id( INSERT_QUERY, 'ARRAY_VALUE' );
+    return $self->tie_array( [], $id, 'VALUE', \@vals );
+}
+
 sub tie_array {
     my ($self, $arry, $id, $valtype, $data) = @_;
-    tie %$arry, 'Yote::SQLObjectStore::SQLite::Array', $id, $self, "ARRAY_$valtype";
+    tie @$arry, 'Yote::SQLObjectStore::SQLite::Array', $id, $self, "ARRAY_$valtype", $valtype;
     $self->_weak( $id, $arry );
     if ($data) {
-        if ($valtype eq 'REF') {
-            push @$arry, map { $self->xform_in( $_, 'REF' ) } @$data;
-        } else {
-            push @$arry, @$data;
-        }
+        push @$arry, @$data;
     }
     return $arry;
 }
 
 sub tie_hash {
     my ($self, $hash, $id, $valtype, $data) = @_;
+
     tie %$hash, 'Yote::SQLObjectStore::SQLite::Hash', $id, $self, "HASH_$valtype", $valtype;
     $self->_weak( $id, $hash );
     if ($data) {
-        if ($valtype eq 'REF') {
-            for my $key (keys %$data) {
-                $hash->{$key} = $self->xform_in( $data->{$key}, 'REF' );
-            }
-        } else {
-            for my $key (keys %$data) {
-                $hash->{$key} = $data->{$key};
-            }
+        for my $key (keys %$data) {
+            $hash->{$key} = $data->{$key};
         }
     }
     return $hash;
@@ -122,6 +139,12 @@ sub xform_out {
 }
 
 sub xform_in {
+    my $self = shift;
+    my $encoded = $self->xform_in_full(@_);
+    return $encoded;
+}
+
+sub xform_in_full {
     my ($self, $value, $def) = @_;
     
     my $ref = ref( $value );
@@ -136,13 +159,12 @@ sub xform_in {
         my $table_name = $def;
 
         my $tied = $ref eq 'HASH' ? tied %$value : tied @$value;
-
         my $id;
         if ($tied) {
             $id = $tied->id;
         }
         else {
-            my $id = $self->id( $def );
+            $id = $self->id( $def );
 
             my $data_structure = $data_type eq 'HASH' ?
                 $self->tie_hash( {}, $id, $val_type, $value ) :
@@ -150,8 +172,8 @@ sub xform_in {
 
             $self->dirty( $id );
             $value = $data_structure;
-            $field_value = $id;
         }
+        $field_value = $id;
     } elsif( $def eq 'VALUE' ) {
         die "accepts only values" if $ref;
         $field_value = $value;
@@ -160,7 +182,6 @@ sub xform_in {
         die "accepts only references" unless ref( $value );
 
         my $tied = $ref eq 'HASH' ? tied %$value : $ref eq 'ARRAY' ? tied @$value : $value;
-
         die "accepts only Yote::SQL::Obj references" 
             unless $tied->isa( 'Yote::SQLObjectStore::Obj' )   || 
                    $tied->isa( 'Yote::SQLObjectStore::Array' ) ||
@@ -171,7 +192,7 @@ sub xform_in {
         die "accepts only '$def' references" unless ref( $value ) && $value->isa( $def );
         $field_value = $value->id;
     }
-    return $field_value, $value;
+    return $value, $field_value;
 }
 
 sub fetch_obj_from_sql {
@@ -241,19 +262,16 @@ sub fetch_obj_from_sql {
 	{},
         ], $class;
 
-#@    print STDERR Data::Dumper->Dump([$class,$cols,$sql,{ map { $cols[$_] => $ret[$cols] } (0..$#cols) },\@cols,\@ret,$obj,"PAKKA"]);exit;
-
     return $obj;
 }
 
-sub id {
+sub next_id {
     my ($self, $table) = @_;
-    my $sth_name = 'record_count';
     
-    return $self->_insert_get_id(
-        "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)",
-        $table );
+    return $self->_insert_get_id( INSERT_QUERY, $table );
 }
+
+# --------- DB FUNS -------
 
 sub _sth {
     my ($self, $query ) = @_;
@@ -268,7 +286,6 @@ sub _sth {
 
 sub _insert_get_id {
     my ($self, $query, @qparams ) = @_;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"insert_get_id"]);
     my $dbh = $self->dbh;
     my $sth = $self->_sth( $query );
     my $res = $sth->execute( @qparams );
@@ -327,7 +344,6 @@ sub _query_line {
 
 sub _apply_query_array {
     my ($self, $query, $qparams, $eachrow_fun ) = @_;
-    print STDERR Data::Dumper->Dump([$query,$qparams,"query apply"]);    
     my $sth = $self->_sth( $query );
     my $res = $sth->execute( @$qparams );
     if (!defined $res) {
