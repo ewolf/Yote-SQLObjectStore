@@ -22,12 +22,9 @@ sub save_sql {
     my $data = $self->data;
 
     my $val_field = $table eq 'ARRAY_REF' ? 'refid' : 'val';
-
-    my @fields = keys %$data;
     push @queries, [ "INSERT INTO $table (id, idx, $val_field) VALUES "
-                     . join( ",", '(?,?,?)' x @fields ),
+                     . join( ",", ('(?,?,?)') x @$data),
                      map { ($id, $_, $data->[$_]) } (0..$#$data) ];
-    
     return $id, $table, @queries;
 }
 

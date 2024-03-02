@@ -61,6 +61,25 @@ subtest 'reference and reopen test' => sub {
 
         is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it' );
 
+        # now gotta get stuff in the ref, like a [], {} and obj
+        my $root_refs = $r1->get_ref_hash;
+
+        # make some data structures to put in root ref hash
+        my $val_arry = $root_refs->{val_array} = $object_store->new_value_array( 1,2,3 );
+        my $ref_arry = $root_refs->{ref_array} = $object_store->new_ref_array( $r1 );
+        my $val_hash = $root_refs->{val_hash} = $object_store->new_value_hash( a => 1, b => 2, c => 3 );
+        my $ref_hash = $root_refs->{ref_hash} = $object_store->new_ref_hash(root => $r1);
+        
+        # make some object too
+        my $wilma = $object_store->new_obj( 'SomeThing', name => 'wilma' );
+        my $brad = $object_store->new_obj( 'SomeThing', name => 'brad', sister => $wilma  );
+
+        is ($brad->get_sister, $wilma, 'brad sister is wilma' );
+        is_deeply( $root_refs->{val_array}, [1,2,3], 'val array' );
+        is_deeply( $root_refs->{ref_array}, [$r1], 'ref array' );
+        is_deeply( $root_refs->{val_hash}, { a => 1, b => 2, c => 3 }, 'val hash' );
+        is_deeply( $root_refs->{ref_hash}, { root => $r1 }, 'ref hash' );
+
         $object_store->save;
         $object_store->unlock;
     }
@@ -72,20 +91,9 @@ subtest 'reference and reopen test' => sub {
             );
         $object_store->open;
         my $root = $object_store->fetch_root;
-            my $root_vals = $root->get_val_hash;
+        my $root_vals = $root->get_val_hash;
         is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it after reopen' );
 
-        # now gotta get stuff in the ref, like a [], {} and obj
-        my $root_refs = $root->get_ref_hash;
-
-        # make some data structures to put in root ref hash
-        my $val_arry = $root_refs->{val_array} = $object_store->new_value_array( 1,2,3 );
-        my $ref_arry = $root_refs->{ref_array} = $object_store->new_ref_array( $root );
-        my $val_hash = $root_refs->{val_hash} = $object_store->new_value_hash( a => 1, b => 2, c => 3 );
-        my $ref_hash = $root_refs->{ref_hash} = $object_store->new_ref_hash(root => $root);
-        
-        # make some object too
-        my $thing = $object_store->new_obj( 'SomeThing', name => 'fred' );
     }
 
 
