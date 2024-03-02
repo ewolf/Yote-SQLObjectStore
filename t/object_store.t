@@ -79,12 +79,13 @@ subtest 'reference and reopen test' => sub {
         my $root_refs = $root->get_ref_hash;
 
         # make some data structures to put in root ref hash
-        my $val_arry = $root_refs->{val_array} = $object_store->make_value_array( 1,2,3 );
-        my $ref_arry = $root_refs->{ref_array} = $object_store->make_ref_array( $root );
-        my $val_hash = $root_refs->{val_hash} = $object_store->make_value_hash( a => 1, b => 2, c => 3 );
-        my $ref_hash = $root_refs->{ref_hash} = $object_store->make_ref_hash(root => $root);
+        my $val_arry = $root_refs->{val_array} = $object_store->new_value_array( 1,2,3 );
+        my $ref_arry = $root_refs->{ref_array} = $object_store->new_ref_array( $root );
+        my $val_hash = $root_refs->{val_hash} = $object_store->new_value_hash( a => 1, b => 2, c => 3 );
+        my $ref_hash = $root_refs->{ref_hash} = $object_store->new_ref_hash(root => $root);
         
         # make some object too
+        my $thing = $object_store->new_obj( 'SomeThing', name => 'fred' );
     }
 
 

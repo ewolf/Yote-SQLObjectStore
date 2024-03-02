@@ -9,9 +9,8 @@ use base 'Yote::SQLObjectStore::SQLite::Obj';
 sub _init {
     my $self = shift;
     my $store = $self->store;
-    $self->set_ref_hash( $store->make_ref_hash );
-    $self->set_val_hash( $store->make_value_hash );
-    print STDERR Data::Dumper->Dump([$self,"INIT ($self)"]);
+    $self->set_ref_hash( $store->new_ref_hash );
+    $self->set_val_hash( $store->new_value_hash );
 }
 
 # simply has a reference hash and a value hash

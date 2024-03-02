@@ -11,8 +11,6 @@ use constant {
     DATA     => 1,
     STORE    => 2,
     VOL      => 3,
-    TABLE    => 4,
-    COLS     => 5,
 };
 
 #

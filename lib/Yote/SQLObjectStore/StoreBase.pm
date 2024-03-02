@@ -473,35 +473,35 @@ child class of Yote::RecordStore::Obj.
 The arguments may be given in either order.
 
 =cut
-sub new_obj {
-    my ($self, $data, $class) = @_;
-    unless (ref $data) {
-	($class,$data) = ($data,$class);
-    }
-    $data  //= {};
-    $class //= 'Yote::ObjectStore::Obj';
+# sub new_obj {
+#     my ($self, $data, $class) = @_;
+#     unless (ref $data) {
+# 	($class,$data) = ($data,$class);
+#     }
+#     $data  //= {};
+#     $class //= 'Yote::ObjectStore::Obj';
 
-    if( $class ne 'Yote::ObjectStore::Obj' ) {
-      my $clname = $class;
-      $clname =~ s/::/\//g;
+#     if( $class ne 'Yote::ObjectStore::Obj' ) {
+#       my $clname = $class;
+#       $clname =~ s/::/\//g;
 
-      require "$clname.pm";
-    }
+#       require "$clname.pm";
+#     }
     
-    my $id = $self->_new_id;
+#     my $id = $self->_new_id;
 
-    my $obj = bless [
-        $id,
-        { map { $_ => $self->_xform_in($data->{$_}) } keys %$data},
-        $self,
-	{},
-        ], $class;
-    $self->dirty( $id, $obj );
-    $obj->_init;
-    $self->_weak( $id, $obj );
+#     my $obj = bless [
+#         $id,
+#         { map { $_ => $self->_xform_in($data->{$_}) } keys %$data},
+#         $self,
+# 	{},
+#         ], $class;
+#     $self->dirty( $id, $obj );
+#     $obj->_init;
+#     $self->_weak( $id, $obj );
 
-    return $obj;
-} #new_obj
+#     return $obj;
+# } #new_obj
 
 "BUUG";
 

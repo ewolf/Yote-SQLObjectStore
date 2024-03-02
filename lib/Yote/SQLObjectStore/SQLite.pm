@@ -6,6 +6,7 @@ use warnings;
 use Yote::SQLObjectStore::SQLite::TableManagement;
 use base 'Yote::SQLObjectStore::StoreBase';
 
+use Carp qw(confess);
 use DBI;
 
 use constant {
@@ -80,25 +81,47 @@ sub make_all_tables {
     $self->_query_do( "COMMIT" );
 }
 
-sub make_ref_hash {
+sub new_obj($*@) {
+    my ($self, $pkg, %args) = @_;
+    my $package_file = $pkg;
+    $package_file =~ s/::/\//g;
+    require "$package_file.pm";
+
+    my $table = join '_', reverse split /::/, $pkg;
+    print STDERR Data::Dumper->Dump([$table,"TABBY <$table> <$pkg>"]);
+    my $id = $self->_insert_get_id( INSERT_QUERY, $table );
+    print STDERR Data::Dumper->Dump(["OID $id"]);
+    my $cols = $pkg->cols;
+    my @cols = keys %$cols;
+    my $obj = bless [
+        $id,
+        { map { $cols[$_] => $self->xform_in( $args{$cols[$_]}, $cols->{$cols[$_]} ) } (0..$#cols) },
+        $self,
+        {},
+        ], $pkg;
+
+    return $obj;
+}
+
+sub new_ref_hash {
     my ($self, %refs) = @_;
     my $id = $self->_insert_get_id( INSERT_QUERY, 'HASH_REF' );
     return $self->tie_hash( {}, $id, 'REF', \%refs );
 }
 
-sub make_value_hash {
+sub new_value_hash {
     my ($self, %vals) = @_;
     my $id = $self->_insert_get_id( INSERT_QUERY, 'HASH_VALUE' );
     return $self->tie_hash( {}, $id, 'VALUE', \%vals );
 }
 
-sub make_ref_array {
+sub new_ref_array {
     my ($self, @refs) = @_;
     my $id = $self->_insert_get_id( INSERT_QUERY, 'ARRAY_REF' );
     return $self->tie_array( [], $id, 'REF', \@refs );
 }
 
-sub make_value_array {
+sub new_value_array {
     my ($self, @vals) = @_;
     my $id = $self->_insert_get_id( INSERT_QUERY, 'ARRAY_VALUE' );
     return $self->tie_array( [], $id, 'VALUE', \@vals );
@@ -130,7 +153,7 @@ sub tie_hash {
 sub xform_out {
     my ($self, $value, $def) = @_;
 
-    if( $def eq 'VALUE' ) {
+    if( $def eq 'VALUE' || $value == 0 ) {
         return $value;
     } 
 
@@ -179,15 +202,20 @@ sub xform_in_full {
         $field_value = $value;
 
     } elsif( $def eq 'REF' ) {
-        die "accepts only references" unless ref( $value );
+        if (defined $value) {
+            confess "accepts only references" unless ref( $value );
 
-        my $tied = $ref eq 'HASH' ? tied %$value : $ref eq 'ARRAY' ? tied @$value : $value;
-        die "accepts only Yote::SQL::Obj references" 
-            unless $tied->isa( 'Yote::SQLObjectStore::Obj' )   || 
-                   $tied->isa( 'Yote::SQLObjectStore::Array' ) ||
-                   $tied->isa( 'Yote::SQLObjectStore::Hash' );
-        
-        $field_value = $tied->id;
+            my $tied = $ref eq 'HASH' ? tied %$value : $ref eq 'ARRAY' ? tied @$value : $value;
+            die "accepts only Yote::SQL::Obj references" 
+                unless $tied->isa( 'Yote::SQLObjectStore::Obj' )   || 
+                $tied->isa( 'Yote::SQLObjectStore::Array' ) ||
+                $tied->isa( 'Yote::SQLObjectStore::Hash' );
+            
+            $field_value = $tied->id;
+        } else {
+            warn "this could be a big decision. allow undefined references?";
+            $field_value = 0;
+        }
     } else {
         die "accepts only '$def' references" unless ref( $value ) && $value->isa( $def );
         $field_value = $value->id;
