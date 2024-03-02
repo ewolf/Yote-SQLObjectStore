@@ -44,18 +44,13 @@ sub save_sql {
             join(',',  map { "$_=?" } @col_names ).
             " WHERE id=?";
         push @qparams, $id;
-
-    } elsif( $id ) {
+    } 
+    else {
         $sql = "INSERT INTO $table (".
             join(',', 'id', @col_names).") VALUES (".
             join(',', ('?') x (1+@col_names) ).
            ")";
         unshift @qparams, $id;
-    } else {
-        $sql = "INSERT INTO $table (".
-            join(',', @col_names).") VALUES (".
-            join(',', ('?') x @col_names ).
-           ")";
     }
     return $id, $table, [$sql, @qparams];
 }

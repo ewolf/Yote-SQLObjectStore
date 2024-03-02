@@ -24,6 +24,7 @@ sub save_sql {
     my $val_field = $table eq 'HASH_REF' ? 'refid' : 'val';
 
     my @fields = keys %$data;
+
     if (@fields) {
         push @queries, [ "INSERT INTO $table (id, key, $val_field) VALUES "
                          . join( ",", ('(?,?,?)') x @fields ),

@@ -7,6 +7,12 @@ our %cols = (
     name => 'VALUE',
     brother => 'REF',
     sister => 'REF',
+    something => 'SomeThing',
+    some_ref_array => 'ARRAY_REF',
+    some_val_array => 'ARRAY_VALUE',
+    some_ref_hash => 'HASH_REF',
+    some_val_hash => 'HASH_VALUE',
+    
 );
 
 1;

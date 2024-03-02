@@ -9,10 +9,6 @@ use base 'Yote::SQLObjectStore::StoreBase';
 use Carp qw(confess);
 use DBI;
 
-use constant {
-    INSERT_QUERY => "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)",
-};
-
 sub new {
     my ($pkg, %args ) = @_;
     $args{ROOT_PACKAGE} //= 'Yote::SQLObjectStore::SQLite::Root';
@@ -72,7 +68,7 @@ sub new_obj($*@) {
 
     my $table = join '_', reverse split /::/, $pkg;
 
-    my $id = $self->_insert_get_id( INSERT_QUERY, $table );
+    my $id = $self->next_id( $table );
 
     my $obj_data = {};
     my $obj = bless [
@@ -105,25 +101,25 @@ sub new_obj($*@) {
 
 sub new_ref_hash {
     my ($self, %refs) = @_;
-    my $id = $self->_insert_get_id( INSERT_QUERY, 'HASH_REF' );
+    my $id = $self->next_id( 'HASH_REF' );
     return $self->tie_hash( {}, $id, 'REF', \%refs );
 }
 
 sub new_value_hash {
     my ($self, %vals) = @_;
-    my $id = $self->_insert_get_id( INSERT_QUERY, 'HASH_VALUE' );
+    my $id = $self->next_id( 'HASH_VALUE' );
     return $self->tie_hash( {}, $id, 'VALUE', \%vals );
 }
 
 sub new_ref_array {
     my ($self, @refs) = @_;
-    my $id = $self->_insert_get_id( INSERT_QUERY, 'ARRAY_REF' );
+    my $id = $self->next_id( 'ARRAY_REF' );
     return $self->tie_array( [], $id, 'REF', \@refs );
 }
 
 sub new_value_array {
     my ($self, @vals) = @_;
-    my $id = $self->_insert_get_id( INSERT_QUERY, 'ARRAY_VALUE' );
+    my $id = $self->next_id( 'ARRAY_VALUE' );
     return $self->tie_array( [], $id, 'VALUE', \@vals );
 }
 
@@ -174,10 +170,11 @@ sub xform_in_full {
 
     # field value is a string if VALUE, an id if a reference;
     my $field_value;
-    if ($def =~ /^(HASH||ARRAY)_(VALUE|REF)$/) {
+
+    if ($def =~ /^(HASH|ARRAY)_(VALUE|REF)$/) {
         my $data_type = $1;
         my $val_type = $2;
-        die "accepts only hashes" if $value && $ref ne $1;
+        die "accepts only $1" if $ref ne $1;
 
         my $table_name = $def;
 
@@ -220,6 +217,7 @@ sub xform_in_full {
         die "accepts only '$def' references" unless ref( $value ) && $value->isa( $def );
         $field_value = $value->id;
     }
+
     return $value, $field_value;
 }
 
@@ -297,7 +295,7 @@ sub fetch_obj_from_sql {
 sub next_id {
     my ($self, $table) = @_;
     
-    return $self->_insert_get_id( INSERT_QUERY, $table );
+    return $self->_insert_get_id( "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)", $table );
 }
 
 # --------- DB FUNS -------
