@@ -1,4 +1,4 @@
-package Yote::SQLObjectStore::Obj;
+package Yote::SQLObjectStore::BaseObj;
 
 use 5.16.0;
 
@@ -11,6 +11,7 @@ use constant {
     DATA     => 1,
     STORE    => 2,
     VOL      => 3,
+    HAS_FIRST_SAVE => 4,
 };
 
 #
@@ -68,6 +69,10 @@ sub id {
     return shift->[ID];
 }
 
+sub _has_first_save {
+    return shift->[HAS_FIRST_SAVE];
+}
+
 sub data {
     return shift->[DATA];
 }
@@ -119,9 +124,8 @@ sub get {
     }
     my $cols = $self->cols;
     my $def = $cols->{$field};
-    print STDERR Data::Dumper->Dump([$data,"DADA ($self)"]);
-    return $self->store->xform_out( $data->{$field}, $def );
 
+    return $self->store->xform_out( $data->{$field}, $def );
 } #get
 
 

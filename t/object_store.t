@@ -27,6 +27,8 @@ my $factory = Factory->new( %args );
 $factory->setup;
 # -------------------------------------------------------------
 
+print STDERR Data::Dumper->Dump([\@INC,"MUM"]);
+
 subtest 'reference and reopen test' => sub {
     my $dir = $factory->new_db_handle;
 
@@ -64,19 +66,20 @@ subtest 'reference and reopen test' => sub {
         # now gotta get stuff in the ref, like a [], {} and obj
         my $root_refs = $r1->get_ref_hash;
 
-        # make some data structures to put in root ref hash
-        my $val_arry = $root_refs->{val_array} = $object_store->new_value_array( 1,2,3 );
-        my $ref_arry = $root_refs->{ref_array} = $object_store->new_ref_array( $r1 );
-        my $val_hash = $root_refs->{val_hash} = $object_store->new_value_hash( a => 1, b => 2, c => 3 );
-        my $ref_hash = $root_refs->{ref_hash} = $object_store->new_ref_hash(root => $r1);
-        
         # make some object too
         my $wilma = $object_store->new_obj( 'SomeThing', name => 'wilma' );
         my $brad = $object_store->new_obj( 'SomeThing', name => 'brad', sister => $wilma  );
 
+        # make some data structures to put in root ref hash
+        my $val_arry = $root_refs->{val_array} = $object_store->new_value_array( 1,2,3 );
+        my $ref_arry = $root_refs->{ref_array} = $object_store->new_ref_array( $r1, $wilma, $brad );
+        my $val_hash = $root_refs->{val_hash} = $object_store->new_value_hash( a => 1, b => 2, c => 3 );
+        my $ref_hash = $root_refs->{ref_hash} = $object_store->new_ref_hash(root => $r1);
+        
+
         is ($brad->get_sister, $wilma, 'brad sister is wilma' );
         is_deeply( $root_refs->{val_array}, [1,2,3], 'val array' );
-        is_deeply( $root_refs->{ref_array}, [$r1], 'ref array' );
+        is_deeply( $root_refs->{ref_array}, [$r1, $wilma, $brad ], 'ref array' );
         is_deeply( $root_refs->{val_hash}, { a => 1, b => 2, c => 3 }, 'val hash' );
         is_deeply( $root_refs->{ref_hash}, { root => $r1 }, 'ref hash' );
 
@@ -93,6 +96,11 @@ subtest 'reference and reopen test' => sub {
         my $root = $object_store->fetch_root;
         my $root_vals = $root->get_val_hash;
         is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it after reopen' );
+
+        my $root_refs = $root->get_ref_hash;
+        my ($loaded_root, $wilma, $brad) = @{$root_refs->{ref_array}};
+        is( $loaded_root, $root, 'roots are roots' );
+        is ($brad->get_sister, $wilma, 'brad sister is wilma' );
 
     }
 

@@ -4,7 +4,7 @@ use 5.16.0;
 
 use warnings;
 
-use base 'Yote::SQLObjectStore::Obj';
+use base 'Yote::SQLObjectStore::BaseObj';
 
 use Yote::SQLObjectStore::SQLite::Hash;
 use Yote::SQLObjectStore::SQLite::Array;
@@ -29,7 +29,7 @@ sub make_table_sql {
 }
 
 sub save_sql {
-    my ($self,$force_insert) = @_;
+    my ($self) = @_;
     
     my $id = $self->id;
     my $data = $self->data;
@@ -39,25 +39,22 @@ sub save_sql {
     my ($sql);
 
     my @qparams = map { $data->{$_} } @col_names;
-    if( $id ) {
-        if ($force_insert) {
-            # the root object case uses this force insert
-            $sql = "INSERT INTO $table (".
-                join(',', 'id', @col_names).") VALUES (".
-                join(',', ('?') x (1+@col_names) ).
-                ") ON CONFLICT(id) DO UPDATE SET ".
-                join(',', map { "$_=?" } @col_names );
-            (@qparams) = ($id, @qparams, @qparams);
-        } else {
-            $sql = "UPDATE $table SET ".
-                join(',',  map { "$_=?" } @col_names ).
-                " WHERE id=?";
-            push @qparams, $id;
-        }
-    } else {
+    if( $self->_has_first_save ) {
+        $sql = "UPDATE $table SET ".
+            join(',',  map { "$_=?" } @col_names ).
+            " WHERE id=?";
+        push @qparams, $id;
+
+    } elsif( $id ) {
         $sql = "INSERT INTO $table (".
             join(',', 'id', @col_names).") VALUES (".
             join(',', ('?') x (1+@col_names) ).
+           ")";
+        unshift @qparams, $id;
+    } else {
+        $sql = "INSERT INTO $table (".
+            join(',', @col_names).") VALUES (".
+            join(',', ('?') x @col_names ).
            ")";
     }
     return $id, $table, [$sql, @qparams];

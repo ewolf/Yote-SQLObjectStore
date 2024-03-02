@@ -1,4 +1,4 @@
-package Yote::SQLObjectStore::Hash;
+package Yote::SQLObjectStore::BaseHash;
 
 use 5.16.0;
 use warnings;
@@ -17,7 +17,6 @@ use constant {
 
 sub dirty {
     my $self = shift;
-    print STDERR Data::Dumper->Dump(["DOITY ($self)"]);
     $self->[OBJ_STORE]->dirty( $self->[ID], $self );
 } #dirty
 

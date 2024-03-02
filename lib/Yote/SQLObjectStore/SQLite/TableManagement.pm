@@ -52,7 +52,7 @@ sub _walk_for_perl {
 
     for my $mod (@perls) {
         my @reqlist = requires( $mod );
-        if (grep { $_ eq 'Yote::SQLObjectStore::Obj' } @reqlist) {
+        if (grep { $_ eq 'Yote::SQLObjectStore::BaseObj' } @reqlist) {
             push @mods, $mod;
         }
     }
@@ -71,6 +71,7 @@ sub _walk_for_perl {
 sub find_obj_packages {
     my @mods;
     for my $dir (@INC) {
+        next if $dir eq '.';
         # find the perl files in this directory
         push @mods, _walk_for_perl( $dir );
     }
@@ -82,11 +83,22 @@ sub all_obj_tables_sql {
     my @builds = generate_base_sql;
     my @mods = find_obj_packages;
 
-    if (can_load ( modules => { map { $_ => 0 } @mods }, verbose => 1)) {
-        for my $mod (@mods) {
-            push @builds, $mod->make_table_sql;            
+    my %files = reverse %INC;
+
+    my %seen;
+    for my $mod (@mods) {
+        my $as_path = join( '/', split( /::/, $mod)) . '.pm';
+        next if $files{$as_path};
+        if (can_load ( modules => { $mod => 0 }, verbose => 1)) {
+            if ($seen{$mod}++) {
+            } else {
+                $files{$as_path} = 1;
+                push @builds, $mod->make_table_sql;
+                %files = reverse %INC;
+            }
         }
     }
+
     return @builds;
 }
 

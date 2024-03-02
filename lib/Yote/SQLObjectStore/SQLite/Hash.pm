@@ -4,7 +4,7 @@ use 5.16.0;
 
 use warnings;
 
-use base 'Yote::SQLObjectStore::Hash';
+use base 'Yote::SQLObjectStore::BaseHash';
 
 sub save_sql {
     my ($self) = @_;

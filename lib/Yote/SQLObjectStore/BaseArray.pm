@@ -1,4 +1,4 @@
-package Yote::SQLObjectStore::Array;
+package Yote::SQLObjectStore::BaseArray;
 
 use 5.14.0;
 

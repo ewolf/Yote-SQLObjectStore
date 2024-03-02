@@ -36,32 +36,15 @@ sub connect_sql {
 }
 
 sub store_obj_data_to_sql {
-    my ($self, $obj, $force_insert ) = @_;
+    my ($self, $obj ) = @_;
 
-    my $ref = $self->tied_obj($obj);
+    my $ref = $self->tied_item($obj);
 
-    my ($id, $table, @queries) = $ref->save_sql( $force_insert );
+    my ($id, $table, @queries) = $ref->save_sql;
 
-    if ($id) {
-        # updatex object table
-        for my $q (@queries) {
-            my ($update_obj_table_sql, @qparams) = @$q;
-            $self->_query_do( $update_obj_table_sql, @qparams );
-        }
-        if ($force_insert) {
-            # the root will force. write to the index
-            $self->_query_do( "INSERT INTO ObjectIndex (id,live,objtable) VALUES (?,1,?) ON CONFLICT(id) DO UPDATE SET live=1,objtable=?", $id, $table, $table );
-        }
-    } else {
-
-        # write to the index and get a new id
-        $id = $self->_insert_get_id( INSERT_QUERY, $table );
-
-        # updatex object table
-        for my $q (@queries) {
-            my ($update_obj_table_sql, @qparams) = @$q;
-            $self->_query_do( $update_obj_table_sql, @qparams );
-        }
+    for my $q (@queries) {
+        my ($update_obj_table_sql, @qparams) = @$q;
+        $self->_query_do( $update_obj_table_sql, @qparams );
     }
 }
 
@@ -88,17 +71,34 @@ sub new_obj($*@) {
     require "$package_file.pm";
 
     my $table = join '_', reverse split /::/, $pkg;
-    print STDERR Data::Dumper->Dump([$table,"TABBY <$table> <$pkg>"]);
+
     my $id = $self->_insert_get_id( INSERT_QUERY, $table );
-    print STDERR Data::Dumper->Dump(["OID $id"]);
-    my $cols = $pkg->cols;
-    my @cols = keys %$cols;
+
+    my $obj_data = {};
     my $obj = bless [
         $id,
-        { map { $cols[$_] => $self->xform_in( $args{$cols[$_]}, $cols->{$cols[$_]} ) } (0..$#cols) },
+        $obj_data,
         $self,
-        {},
+        {}, #volatile
+        0, # NO SAVE IN OBJ TABLE YET 
         ], $pkg;
+
+    $obj->_init;
+
+    $self->weak( $id, $obj );
+    $self->dirty( $id, $obj );
+
+    if (%args) {
+        my $cols = $pkg->cols;
+
+        for my $input_field (keys %args) {
+            if ( my $coldef = $cols->{$input_field} ) {
+                $obj_data->{$input_field} = $self->xform_in( $args{$input_field}, $coldef );
+            } else {
+                warn "'$input_field' does not exist for object with package $pkg";
+            }
+        }
+    }
 
     return $obj;
 }
@@ -130,7 +130,7 @@ sub new_value_array {
 sub tie_array {
     my ($self, $arry, $id, $valtype, $data) = @_;
     tie @$arry, 'Yote::SQLObjectStore::SQLite::Array', $id, $self, "ARRAY_$valtype", $valtype;
-    $self->_weak( $id, $arry );
+    $self->weak( $id, $arry );
     if ($data) {
         push @$arry, @$data;
     }
@@ -141,7 +141,7 @@ sub tie_hash {
     my ($self, $hash, $id, $valtype, $data) = @_;
 
     tie %$hash, 'Yote::SQLObjectStore::SQLite::Hash', $id, $self, "HASH_$valtype", $valtype;
-    $self->_weak( $id, $hash );
+    $self->weak( $id, $hash );
     if ($data) {
         for my $key (keys %$data) {
             $hash->{$key} = $data->{$key};
@@ -187,7 +187,7 @@ sub xform_in_full {
             $id = $tied->id;
         }
         else {
-            $id = $self->id( $def );
+            $id = $self->id_for_item( $def );
 
             my $data_structure = $data_type eq 'HASH' ?
                 $self->tie_hash( {}, $id, $val_type, $value ) :
@@ -206,10 +206,10 @@ sub xform_in_full {
             confess "accepts only references" unless ref( $value );
 
             my $tied = $ref eq 'HASH' ? tied %$value : $ref eq 'ARRAY' ? tied @$value : $value;
-            die "accepts only Yote::SQL::Obj references" 
-                unless $tied->isa( 'Yote::SQLObjectStore::Obj' )   || 
-                $tied->isa( 'Yote::SQLObjectStore::Array' ) ||
-                $tied->isa( 'Yote::SQLObjectStore::Hash' );
+            die "accepts only Yote::SQLObjectStore::BaseObj references" 
+                unless $tied->isa( 'Yote::SQLObjectStore::BaseObj' )   || 
+                $tied->isa( 'Yote::SQLObjectStore::BaseArray' ) ||
+                $tied->isa( 'Yote::SQLObjectStore::BaseHash' );
             
             $field_value = $tied->id;
         } else {
@@ -288,6 +288,7 @@ sub fetch_obj_from_sql {
         { map { $cols[$_] => $ret[$_] } (0..$#cols) },
         $self,
 	{},
+        1, # HAS SAVE IN TABLE
         ], $class;
 
     return $obj;
@@ -351,6 +352,7 @@ sub _query_do {
     }
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;

@@ -160,26 +160,10 @@ sub fetch_root {
     my $root_id = 1;
 
     my $root = $self->fetch( $root_id );
+    return $root if $root;
 
-    if ($root) {
-        return $root;
-    }
+    $root = $self->new_obj( $self->[ROOT_PACKAGE] );
 
-    # directly bless this rather than call new_obj so the init can be controlled here
-    $root = bless [
-        $root_id,
-        {},
-        $self,
-        {},
-        ], $root_package;
-
-    $self->store_obj_data_to_sql( $root, FORCE_INSERT );
-
-    $root->_init;
-
-    $self->_weak( $root_id, $root );
-    
-    return $root;
 } #fetch_root
 
 
@@ -228,7 +212,7 @@ sub fetch {
 
     return undef unless $obj;
 
-    $self->_weak( $id, $obj );
+    $self->weak( $id, $obj );
 
     return $obj;
 }
@@ -284,21 +268,21 @@ sub ensure_path {
     } 
 }
 
-=head2 tied_obj( $obj )
+=head2 tied_item( $obj )
 
 If the object is tied 
 (like Yote::ObjectStore::Array or (like Yote::ObjectStore::Hash) it returns the unlerlying tied object.
 
 =cut
 
-sub tied_obj {
+sub tied_item {
     my ($self, $item) = @_;
     my $r = ref( $item );
     my $tied = $r eq 'ARRAY' ? tied @$item
 	: $r eq 'HASH' ? tied %$item
 	: $item;
     return $tied;
-} #tied_obj
+} #tied_item
 
 
 =head2 existing_id( $item )
@@ -377,7 +361,7 @@ Returns true if the object need saving.
 
 sub is_dirty {
     my ($self,$obj) = @_;
-    my $id = $self->id( $obj );
+    my $id = $self->id_for_item( $obj );
     return defined( $self->[DIRTY]{$id} );
 }
 
@@ -394,52 +378,15 @@ sub _id_is_referenced {
 Returns id of object, creating it if necessary.
 
 =cut
-sub id {
+sub id_for_item {
     my ($self, $item) = @_;
-    my $r = ref( $item );
-    if ($r eq 'ARRAY') {
-        my $tied = tied @$item;
-        if ($tied) {
-            return $tied->id;
-        }
-        my $id = $self->_new_id;
-	my @contents = @$item;
-        @$item = ();  # prevents a memory leak
-        
-        $self->tie_array( $item, $id, \@contents );
-        tie @$item, 'Yote::ObjectStore::Array', $id, $self;
-	push @$item, map { defined $_ ? "$_" : undef } @contents;
-        $self->_weak( $id, $item );
-        $self->dirty( $id );
-        return $id;
-    }
-    elsif ($r eq 'HASH') {
-        my $tied = tied %$item;
-        if ($tied) {
-            return $tied->id;
-        }
-        my $id = $self->_new_id;
-	my %contents = %$item;
-        %$item = ();  # this is where the leak was coming frmo
-        tie %$item, 'Yote::ObjectStore::Hash', $id, $self;
-        $self->_weak( $id, $item );
-	for my $key (keys %contents) {
-            my $v = $contents{$key};
-	    $item->{$key} = defined $v ? "$v" : undef;
-	}
-        $self->dirty( $id );
-        return $id;
-    }
-    elsif ($r && $item->isa( 'Yote::ObjectStore::Obj' )) {
-	return $item->id;
-    }
-    return undef;
-
-} #_id
+    my $tied = $self->tied_item($item);
+    return $tied->id;
+} #next_id
 
 # make a weak reference of the reference
 # and save it by id
-sub _weak {
+sub weak {
     my ($self,$id,$ref) = @_;
     $self->[WEAK]{$id} = $ref;
 
@@ -454,13 +401,13 @@ sub _weak {
 sub dirty {
     my ($self,$id,$obj) = @_;
     unless ($self->[WEAK]{$id}) {
-	$self->_weak($id,$obj);
+	$self->weak($id,$obj);
     }
     my $target = $self->[WEAK]{$id};
 
     my @dids = keys %{$self->[DIRTY]};
 
-    my $tied = $self->tied_obj( $target );
+    my $tied = $self->tied_item( $target );
 
     $self->[DIRTY]{$id} = [$target,$tied];
 } #dirty
@@ -473,35 +420,10 @@ child class of Yote::RecordStore::Obj.
 The arguments may be given in either order.
 
 =cut
-# sub new_obj {
-#     my ($self, $data, $class) = @_;
-#     unless (ref $data) {
-# 	($class,$data) = ($data,$class);
-#     }
-#     $data  //= {};
-#     $class //= 'Yote::ObjectStore::Obj';
-
-#     if( $class ne 'Yote::ObjectStore::Obj' ) {
-#       my $clname = $class;
-#       $clname =~ s/::/\//g;
-
-#       require "$clname.pm";
-#     }
-    
-#     my $id = $self->_new_id;
-
-#     my $obj = bless [
-#         $id,
-#         { map { $_ => $self->_xform_in($data->{$_}) } keys %$data},
-#         $self,
-# 	{},
-#         ], $class;
-#     $self->dirty( $id, $obj );
-#     $obj->_init;
-#     $self->_weak( $id, $obj );
-
-#     return $obj;
-# } #new_obj
+sub new_obj {
+    my ($self, $data, $class) = @_;
+    die "This must be implemented by StoreBase subclass";
+} #new_obj
 
 "BUUG";
 
@@ -510,11 +432,11 @@ The arguments may be given in either order.
 
 =head1 COPYRIGHT AND LICENSE
 
-       Copyright (c) 2012 - 2020 Eric Wolf. All rights reserved.  This program is free software; you can redistribute it and/or modify it
+       Copyright (c) 2012 - 2024 Eric Wolf. All rights reserved.  This program is free software; you can redistribute it and/or modify it
        under the same terms as Perl itself.
 
 =head1 VERSION
-       Version 2.13  (Feb, 2020))
+       Version 1.00  (Feb, 2024))
 
 =cut
 
