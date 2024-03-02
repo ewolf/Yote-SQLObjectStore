@@ -73,9 +73,9 @@ sub new_obj($*@) {
     my $obj_data = {};
     my $obj = bless [
         $id,
+        $table,
         $obj_data,
         $self,
-        {}, #volatile
         0, # NO SAVE IN OBJ TABLE YET 
         ], $pkg;
 
@@ -164,35 +164,23 @@ sub xform_in {
 }
 
 sub xform_in_full {
-    my ($self, $value, $def) = @_;
+    my ($self, $value, $def, $field) = @_;
     
     my $ref = ref( $value );
 
     # field value is a string if VALUE, an id if a reference;
     my $field_value;
-
     if ($def =~ /^(HASH|ARRAY)_(VALUE|REF)$/) {
         my $data_type = $1;
         my $val_type = $2;
-        die "accepts only $1" if $ref ne $1;
 
         my $table_name = $def;
 
         my $tied = $ref eq 'HASH' ? tied %$value : tied @$value;
-        my $id;
-        if ($tied) {
-            $id = $tied->id;
-        }
-        else {
-            $id = $self->id_for_item( $def );
+        $field //= 
+        die "$field only accepts $def" if $ref ne $1 or $tied->data_type ne $2;
 
-            my $data_structure = $data_type eq 'HASH' ?
-                $self->tie_hash( {}, $id, $val_type, $value ) :
-                $self->tie_array( [], $id, $val_type, $value );
-
-            $self->dirty( $id );
-            $value = $data_structure;
-        }
+        my $id = $tied->id;
         $field_value = $id;
     } elsif( $def eq 'VALUE' ) {
         die "accepts only values" if $ref;
@@ -210,10 +198,10 @@ sub xform_in_full {
             
             $field_value = $tied->id;
         } else {
-            warn "this could be a big decision. allow undefined references?";
             $field_value = 0;
         }
     } else {
+        # this is the case where we have a specific class reference
         die "accepts only '$def' references" unless ref( $value ) && $value->isa( $def );
         $field_value = $value->id;
     }
@@ -283,11 +271,13 @@ sub fetch_obj_from_sql {
 
     my $obj = bless [
         $id,
+        $table,
         { map { $cols[$_] => $ret[$_] } (0..$#cols) },
         $self,
-	{},
         1, # HAS SAVE IN TABLE
         ], $class;
+
+    $obj->_load;
 
     return $obj;
 }

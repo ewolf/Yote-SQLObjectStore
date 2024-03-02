@@ -24,6 +24,10 @@ sub table_name {
     return shift->[TABLE];
 }
 
+sub data_type {
+    return shift->[DATA_TYPE];
+}
+
 sub data {
     return shift->[DATA];
 }
@@ -123,7 +127,9 @@ sub SHIFT {
 sub UNSHIFT {
     my( $self, @vals ) = @_;
     my $data = $self->[DATA];
-    @vals && $self->dirty;
+    if (@vals) {
+        $self->dirty;
+    }
     return unshift @$data,
 	map { $self->[OBJ_STORE]->xform_in($_, $self->[DATA_TYPE]) } @vals;
 }

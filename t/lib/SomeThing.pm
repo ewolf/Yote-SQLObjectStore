@@ -5,6 +5,7 @@ use base 'Yote::SQLObjectStore::SQLite::Obj';
 # simply has a reference hash and a value hash
 our %cols = (
     name => 'VALUE',
+    tagline => 'VALUE',
     brother => 'REF',
     sister => 'REF',
     something => 'SomeThing',

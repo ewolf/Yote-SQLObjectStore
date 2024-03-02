@@ -24,6 +24,10 @@ sub table_name {
     return shift->[TABLE];
 }
 
+sub data_type {
+    return shift->[DATA_TYPE];
+}
+
 sub data {
     return shift->[DATA];
 }
@@ -76,7 +80,9 @@ sub STORE {
     my $data = $self->[DATA];
     my $oldval = $data->{$key};
     my $inval = $self->[OBJ_STORE]->xform_in( $val, $self->[DATA_TYPE] );
-    ( $inval ne $oldval ) && $self->dirty;
+    if ( $inval ne $oldval ) {
+        $self->dirty;
+    }
     $data->{$key} = $inval;
     return $val;
 } #STORE

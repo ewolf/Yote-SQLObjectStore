@@ -20,16 +20,13 @@ use vars qw($VERSION);
 $VERSION = '2.06';
 
 use constant {
-    DB_HANDLE => 0,
-    DIRTY     => 1,
-    WEAK      => 2,
-    OPTIONS   => 3,
-    CACHE     => 4,
-    LOCKER    => 5,
-    ROOT_PACKAGE => 6,
-    STATEMENTS => 7,
-
-    FORCE_INSERT => 1,
+    DB_HANDLE    => 0,
+    DIRTY        => 1,
+    WEAK         => 2,
+    OPTIONS      => 3,
+    CACHE        => 4,
+    ROOT_PACKAGE => 5,
+    STATEMENTS   => 6,
 };
 
 =head1 NAME
@@ -87,15 +84,9 @@ Options
 sub new {
     my( $pkg, %args ) = @_;
 
-    my $file = $args{BASE_DIRECTORY} or die __PACKAGE__."::new requires 'BASE_DIRECTORY' argument";
-
     my $dbh = $pkg->connect_sql( %args );
 
-    my $base_dir = $args{BASE_DIRECTORY} or die __PACKAGE__."::open_object_store called without a BASE_DIRECTORY";
-
     my $root_package = $args{ROOT_PACKAGE};
-    
-    my $locker = Yote::Locker->new( "$base_dir/LOCKER" );
     
     return bless [
         $dbh,   # 0
@@ -103,7 +94,6 @@ sub new {
         {},     # 2
         \%args, # 3
         {},     # 4
-        $locker,
         $root_package,
         {}
         ], $pkg;
@@ -112,9 +102,7 @@ sub new {
 sub open {
     my $self = shift;
 
-    $self->lock;
     $self->fetch_root;
-    $self->unlock;
 
     return $self;
 }
@@ -127,24 +115,6 @@ sub statements {
 sub dbh {
     my $self = shift;
     return $self->[DB_HANDLE];
-}
-
-=head2 lock()
-
-Locks the record store
-
-=cut
-sub lock {
-    shift->[LOCKER]->lock;
-}
-
-=head2 unlock()
-
-Unlocks the record store
-
-=cut
-sub unlock {
-    shift->[LOCKER]->unlock;    
 }
 
 =head2 fetch_root()
@@ -177,7 +147,7 @@ If not given an object, saves all objects marked dirty.
 
 sub save {
     my ($self,$obj) = @_;
-    my @dirty = $obj ? ($obj) : values %{$self->[DIRTY]};
+    my @dirty = $obj ? ([undef,$obj]) : values %{$self->[DIRTY]};
 
     # start transaction
     for my $pair (@dirty) {
@@ -217,55 +187,22 @@ sub fetch {
     return $obj;
 }
 
+# get a path from the data structure
 sub fetch_path {
     my ($self, $path) = @_;
     my @path = grep { $_ ne '' } split '/', $path;
     my $fetched = $self->fetch_root;
     while (my $segment = shift @path) {
-        if ($segment =~ /(.*)\[(\d*)\]$/) { #list or list segment
+        if ($segment =~ /(.*)\[(\d+)\]$/) { #list or list segment
             my ($list_name, $idx) = ($1, $2);
-            $fetched = $fetched->get( $list_name );
-            return undef unless ref $fetched ne 'ARRAY';
-            if ($idx ne '') {
-                $fetched = $fetched->[$idx];
-            } elsif( @path ) {
-                # no id and more in path? nope!
-                return undef;
-            } else {
-                return $fetched;
-            }
+            $fetched = ref($fetched) eq 'HASH' ? $fetched->{$list_name} : $fetched->get( $list_name );
+            $fetched = $fetched->[$idx];
         } else {
             $fetched = ref($fetched) eq 'HASH' ? $fetched->{$segment} : $fetched->get($segment);
         }
         last unless defined $fetched;
     }
     return $fetched;
-}
-
-# fetch_path, but with autoviv.
-# returns undef if it cannot
-sub ensure_path {
-    my ($self, $path) = @_;
-    my @path = grep { $_ ne '' } split '/', $path;
-    my $fetched = $self->fetch_root;
-    while (my $segment = shift @path) {
-        if ($segment =~ /(.*)\[(\d*)\]$/) { #list or list segment
-            my ($list_name, $idx) = ($1, $2);
-            $fetched = $fetched->get( $list_name );
-            return undef unless ref $fetched ne 'ARRAY';
-            if ($idx ne '') {
-                $fetched = $fetched->[$idx];
-            } elsif( @path ) {
-                # no id and more in path? nope!
-                return undef;
-            } else {
-                return $fetched;
-            }
-        } else {
-            $fetched = ref($fetched) eq 'HASH' ? $fetched->{$segment} : $fetched->get($segment);
-        }
-        last unless defined $fetched;
-    } 
 }
 
 =head2 tied_item( $obj )
@@ -285,74 +222,6 @@ sub tied_item {
 } #tied_item
 
 
-=head2 existing_id( $item )
-
-Returns the id of the given item, if it has been
-assigend one yet. This is a way to check if 
-an array or hash is in the store.
-
-=cut
-
-sub existing_id {
-    my ($self, $item) = @_;
-    my $r = ref( $item );
-    if ($r eq 'ARRAY') {
-        my $tied = tied @$item;
-        if ($tied) {
-            return $tied->id;
-        }
-	return undef;
-    }
-    elsif ($r eq 'HASH') {
-        my $tied = tied %$item;
-        if ($tied) {
-            return $tied->id;
-        }
-	return undef;
-    }
-    elsif ($r && $item->isa( 'Yote::ObjectStore::Obj' )) {
-	return $item->id;
-    }
-    return undef;
-
-} #existing_id
-
-
-=head1 cache(@objs)
-
-Caches the objects.
-
-=cut
-
-sub cache {
-    my ($self, @objs) = @_;
-    my $cache = $self->[CACHE];
-    for my $obj (@objs) {
-        $cache->{$obj} = $obj; # stringified obj is id
-    }
-}
-
-=head1 cache(@objs)
-
-Uncaches the objects given.
-If none given, caches all.
-
-=cut
-
-sub uncache {
-    my ($self, @objs) = @_;
-    if (@objs) {
-        my $cache = $self->[CACHE];
-        for my $obj (@objs) {
-            delete $cache->{$obj}; # stringified obj is id
-        }
-    } else {
-        $self->[CACHE] = {};
-    }
-}
-
-
-
 =head2 is_dirty(obj)
 
 Returns true if the object need saving.
@@ -363,14 +232,6 @@ sub is_dirty {
     my ($self,$obj) = @_;
     my $id = $self->id_for_item( $obj );
     return defined( $self->[DIRTY]{$id} );
-}
-
-
-# Returns true if the object has a weak reference
-# in the database.
-sub _id_is_referenced {
-    my ($self,$id) = @_;
-    return defined( $self->[WEAK]{$id} );
 }
 
 =head2 id(obj)
@@ -411,19 +272,6 @@ sub dirty {
 
     $self->[DIRTY]{$id} = [$target,$tied];
 } #dirty
-
-=item new_obj( data, class )
-
-Create a new RecordStore object popualted with
-the optional given data hash ref and optional 
-child class of Yote::RecordStore::Obj. 
-The arguments may be given in either order.
-
-=cut
-sub new_obj {
-    my ($self, $data, $class) = @_;
-    die "This must be implemented by StoreBase subclass";
-} #new_obj
 
 "BUUG";
 
