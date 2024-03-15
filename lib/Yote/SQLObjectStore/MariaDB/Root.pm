@@ -1,10 +1,10 @@
-package Yote::SQLObjectStore::SQLite::Root;
+package Yote::SQLObjectStore::MariaDB::Root;
 
 use 5.16.0;
 
 use warnings;
 
-use base 'Yote::SQLObjectStore::SQLite::Obj';
+use base 'Yote::SQLObjectStore::MariaDB::Obj';
 
 sub _init {
     my $self = shift;

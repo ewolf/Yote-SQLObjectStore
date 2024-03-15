@@ -117,6 +117,87 @@ sub dbh {
     return $self->[DB_HANDLE];
 }
 
+sub store_obj_data_to_sql {
+    my ($self, $obj ) = @_;
+
+    my $ref = $self->tied_item($obj);
+
+    my ($id, $table, @queries) = $ref->save_sql;
+
+    for my $q (@queries) {
+        my ($update_obj_table_sql, @qparams) = @$q;
+        $self->query_do( $update_obj_table_sql, @qparams );
+    }
+}
+
+sub record_count {
+    my $self = shift;
+
+    my ($count) = $self->query_line( "SELECT count(*) FROM ObjectIndex WHERE live=1" );
+    
+    return $count;
+}
+
+sub new_obj($*@) {
+    my ($self, $pkg, %args) = @_;
+    my $package_file = $pkg;
+    $package_file =~ s/::/\//g;
+    require "$package_file.pm";
+
+    my $table = join '_', reverse split /::/, $pkg;
+
+    my $id = $self->next_id( $table );
+
+    my $obj_data = {};
+    my $obj = bless [
+        $id,
+        $table,
+        $obj_data,
+        $self,
+        0, # NO SAVE IN OBJ TABLE YET 
+        ], $pkg;
+
+    $obj->_init;
+
+    $self->weak( $id, $obj );
+    $self->dirty( $id, $obj );
+
+    if (%args) {
+        my $cols = $pkg->cols;
+
+        for my $input_field (keys %args) {
+            if ( my $coldef = $cols->{$input_field} ) {
+                $obj_data->{$input_field} = $self->xform_in( $args{$input_field}, $coldef );
+            } else {
+                warn "'$input_field' does not exist for object with package $pkg";
+            }
+        }
+    }
+
+    return $obj;
+}
+
+sub new_ref_hash {
+    my ($self, %refs) = @_;
+    my $id = $self->next_id( 'HASH_REF' );
+    return $self->tie_hash( {}, $id, 'REF', \%refs );
+}
+
+
+sub new_ref_array {
+    my ($self, @refs) = @_;
+    my $id = $self->next_id( 'ARRAY_REF' );
+    return $self->tie_array( [], $id, 'REF', \@refs );
+}
+
+
+sub xform_in {
+    my $self = shift;
+    my $encoded = $self->xform_in_full(@_);
+    return $encoded;
+}
+
+
 =head2 fetch_root()
 
 Returns the root node of the object store.
@@ -205,6 +286,32 @@ sub fetch_path {
     return $fetched;
 }
 
+sub ensure_path {
+    my ($self, $path) = @_;
+    my @path = grep { $_ ne '' } split '/', $path;
+    my $fetched = $self->fetch_root;
+
+    while (my $segment = shift @path) {
+        if ($segment =~ /(.*)\[(\d*)\]$/) { #list or list segment
+            my ($list_name, $idx) = ($1, $2);
+            $fetched = $fetched->get( $list_name );
+            return undef unless ref $fetched ne 'ARRAY';
+            if ($idx ne '') {
+                $fetched = $fetched->[$idx];
+            } elsif( @path ) {
+                # no id and more in path? nope!
+                return undef;
+            } else {
+                return $fetched;
+            }
+        } else {
+            $fetched = ref($fetched) eq 'HASH' ? $fetched->{$segment} : $fetched->get($segment);
+        }
+        last unless defined $fetched;
+    } 
+}
+
+
 =head2 tied_item( $obj )
 
 If the object is tied 
@@ -272,6 +379,96 @@ sub dirty {
 
     $self->[DIRTY]{$id} = [$target,$tied];
 } #dirty
+
+sub next_id {
+    my ($self, $table) = @_;
+    
+    return $self->insert_get_id( "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)", $table );
+}
+
+
+# --------- DB FUNS -------
+
+sub sth {
+    my ($self, $query ) = @_;
+
+    my $stats = $self->statements;
+    my $dbh   = $self->dbh;
+    my $sth   = ($stats->{$query} //= $dbh->prepare( $query ));
+    $sth or die $dbh->errstr;
+
+    return $sth;
+}
+
+sub insert_get_id {
+    my ($self, $query, @qparams ) = @_;
+    my $dbh = $self->dbh;
+    my $sth = $self->sth( $query );
+    my $res = $sth->execute( @qparams );
+    if (!defined $res) {
+        die $sth->errstr;
+    }
+    my $id = $dbh->last_insert_id;
+    return $id;    
+}
+
+sub query_all {
+    my ($self, $query, @qparams ) = @_;
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
+    my $dbh = $self->dbh;
+    my $sth = $dbh->prepare( $query );
+    if (!defined $sth) {
+        die $dbh->errstr;
+    }
+    my $res = $sth->execute( @qparams );
+    if (!defined $res) {
+        die $sth->errstr;
+    }
+    return $sth->fetchall_hashref('id');
+}
+
+
+sub query_do {
+    my ($self, $query, @qparams ) = @_;
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
+    my $dbh = $self->dbh;
+    my $sth = $dbh->prepare( $query );
+    if (!defined $sth) {
+        die $dbh->errstr;
+    }
+    my $res = $sth->execute( @qparams );
+    if (!defined $res) {
+        die $sth->errstr;
+    }
+    my $id = $dbh->last_insert_id;
+    return $id;
+}
+
+sub query_line {
+    my ($self, $query, @qparams ) = @_;
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query line"]);    
+    my $sth = $self->sth( $query );
+
+    my $res = $sth->execute( @qparams );
+    if (!defined $res) {
+        die $sth->errstr;
+    }
+    my @ret = $sth->fetchrow_array;
+    return @ret;
+}
+
+sub apply_query_array {
+    my ($self, $query, $qparams, $eachrow_fun ) = @_;
+    my $sth = $self->sth( $query );
+    my $res = $sth->execute( @$qparams );
+    if (!defined $res) {
+        die $sth->errstr;
+    }
+    while ( my @arry = $sth->fetchrow_array ) {
+        $eachrow_fun->(@arry);
+    }
+}
+
 
 "BUUG";
 

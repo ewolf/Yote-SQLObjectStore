@@ -1,4 +1,4 @@
-package Yote::SQLObjectStore::SQLite::Obj;
+package Yote::SQLObjectStore::MariaDB::Obj;
 
 use 5.16.0;
 
@@ -6,8 +6,8 @@ use warnings;
 
 use base 'Yote::SQLObjectStore::BaseObj';
 
-use Yote::SQLObjectStore::SQLite::Hash;
-use Yote::SQLObjectStore::SQLite::Array;
+use Yote::SQLObjectStore::MariaDB::Hash;
+use Yote::SQLObjectStore::MariaDB::Array;
 
 sub make_table_sql {
     my $pkg = shift;

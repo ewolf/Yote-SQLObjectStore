@@ -1,11 +1,11 @@
-package Yote::SQLObjectStore::SQLite::TableManagement;
+package Yote::SQLObjectStore::MariaDB::TableManagement;
 
 use 5.16.0;
 use warnings;
 
 use File::Grep qw(fgrep fmap fdo);
 use Module::Load::Conditional qw(requires can_load);
-use Yote::SQLObjectStore::SQLite::TableManagement;
+use Yote::SQLObjectStore::MariaDB::TableManagement;
 
 # generate sql to make tables
 # takes a list of subclasses of Yote::SQLObjectStore::Obj 

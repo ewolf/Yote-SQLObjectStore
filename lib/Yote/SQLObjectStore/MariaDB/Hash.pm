@@ -1,4 +1,4 @@
-package Yote::SQLObjectStore::SQLite::Hash;
+package Yote::SQLObjectStore::MariaDB::Hash;
 
 use 5.16.0;
 

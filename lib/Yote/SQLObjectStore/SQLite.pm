@@ -31,90 +31,20 @@ sub connect_sql {
     
 }
 
-sub store_obj_data_to_sql {
-    my ($self, $obj ) = @_;
-
-    my $ref = $self->tied_item($obj);
-
-    my ($id, $table, @queries) = $ref->save_sql;
-
-    for my $q (@queries) {
-        my ($update_obj_table_sql, @qparams) = @$q;
-        $self->_query_do( $update_obj_table_sql, @qparams );
-    }
-}
-
-sub record_count {
-    my $self = shift;
-
-    my ($count) = $self->_query_line( "SELECT count(*) FROM ObjectIndex WHERE live=1" );
-    
-    return $count;
-}
 
 sub make_all_tables {
     my $self = shift;
     my @sql = Yote::SQLObjectStore::SQLite::TableManagement->all_obj_tables_sql;
-    $self->_query_do( "BEGIN" );
-    for my $s (@sql) { $self->_query_do( $s ) }
-    $self->_query_do( "COMMIT" );
+    $self->query_do( "BEGIN" );
+    for my $s (@sql) { $self->query_do( $s ) }
+    $self->query_do( "COMMIT" );
 }
 
-sub new_obj($*@) {
-    my ($self, $pkg, %args) = @_;
-    my $package_file = $pkg;
-    $package_file =~ s/::/\//g;
-    require "$package_file.pm";
-
-    my $table = join '_', reverse split /::/, $pkg;
-
-    my $id = $self->next_id( $table );
-
-    my $obj_data = {};
-    my $obj = bless [
-        $id,
-        $table,
-        $obj_data,
-        $self,
-        0, # NO SAVE IN OBJ TABLE YET 
-        ], $pkg;
-
-    $obj->_init;
-
-    $self->weak( $id, $obj );
-    $self->dirty( $id, $obj );
-
-    if (%args) {
-        my $cols = $pkg->cols;
-
-        for my $input_field (keys %args) {
-            if ( my $coldef = $cols->{$input_field} ) {
-                $obj_data->{$input_field} = $self->xform_in( $args{$input_field}, $coldef );
-            } else {
-                warn "'$input_field' does not exist for object with package $pkg";
-            }
-        }
-    }
-
-    return $obj;
-}
-
-sub new_ref_hash {
-    my ($self, %refs) = @_;
-    my $id = $self->next_id( 'HASH_REF' );
-    return $self->tie_hash( {}, $id, 'REF', \%refs );
-}
 
 sub new_value_hash {
     my ($self, %vals) = @_;
     my $id = $self->next_id( 'HASH_VALUE' );
     return $self->tie_hash( {}, $id, 'VALUE', \%vals );
-}
-
-sub new_ref_array {
-    my ($self, @refs) = @_;
-    my $id = $self->next_id( 'ARRAY_REF' );
-    return $self->tie_array( [], $id, 'REF', \@refs );
 }
 
 sub new_value_array {
@@ -155,12 +85,6 @@ sub xform_out {
 
     # other option is a reference and the value is an id
     return $self->fetch( $value );
-}
-
-sub xform_in {
-    my $self = shift;
-    my $encoded = $self->xform_in_full(@_);
-    return $encoded;
 }
 
 sub xform_in_full {
@@ -212,7 +136,7 @@ sub xform_in_full {
 sub fetch_obj_from_sql {
     my ($self, $id) = @_;
 
-    my ($table) = $self->_query_line(
+    my ($table) = $self->query_line(
         "SELECT objtable FROM ObjectIndex WHERE id=?",
         $id );
 
@@ -229,7 +153,7 @@ sub fetch_obj_from_sql {
             my $array_data = (tied @$array)->data;
 
             # populate the tied array
-            $self->_apply_query_array
+            $self->apply_query_array
                 ( "SELECT idx, $lookup FROM $table WHERE id=?",
                   [$id],
                   sub {
@@ -247,7 +171,7 @@ sub fetch_obj_from_sql {
 
         my $hash_data = (tied %$hash)->data;
 
-        $self->_apply_query_array
+        $self->apply_query_array
             ( "SELECT key, $lookup FROM $table WHERE id=?",
               [$id],
               sub {
@@ -267,7 +191,7 @@ sub fetch_obj_from_sql {
 
     my $sql = "SELECT ".join(',', @cols )." FROM $table WHERE id=?";
 
-    my (@ret) = $self->_query_line( $sql, $id );
+    my (@ret) = $self->query_line( $sql, $id );
 
     my $obj = bless [
         $id,
@@ -280,96 +204,6 @@ sub fetch_obj_from_sql {
     $obj->_load;
 
     return $obj;
-}
-
-sub next_id {
-    my ($self, $table) = @_;
-    
-    return $self->_insert_get_id( "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)", $table );
-}
-
-# --------- DB FUNS -------
-
-sub _sth {
-    my ($self, $query ) = @_;
-
-    my $stats = $self->statements;
-    my $dbh   = $self->dbh;
-    my $sth   = ($stats->{$query} //= $dbh->prepare( $query ));
-    $sth or die $dbh->errstr;
-
-    return $sth;
-}
-
-sub _insert_get_id {
-    my ($self, $query, @qparams ) = @_;
-    my $dbh = $self->dbh;
-    my $sth = $self->_sth( $query );
-    my $res = $sth->execute( @qparams );
-    if (!defined $res) {
-        die $sth->errstr;
-    }
-    my $id = $dbh->last_insert_id;
-    return $id;    
-}
-
-
-sub _query_all {
-    my ($self, $query, @qparams ) = @_;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
-    my $dbh = $self->dbh;
-    my $sth = $dbh->prepare( $query );
-    if (!defined $sth) {
-        die $dbh->errstr;
-    }
-    my $res = $sth->execute( @qparams );
-    if (!defined $res) {
-        die $sth->errstr;
-    }
-    return $sth->fetchall_hashref('id');
-}
-
-
-sub _query_do {
-    my ($self, $query, @qparams ) = @_;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
-    my $dbh = $self->dbh;
-    my $sth = $dbh->prepare( $query );
-    if (!defined $sth) {
-        die $dbh->errstr;
-    }
-    my $res = $sth->execute( @qparams );
-    if (!defined $res) {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
-        die $sth->errstr;
-    }
-    my $id = $dbh->last_insert_id;
-    return $id;
-}
-
-sub _query_line {
-    my ($self, $query, @qparams ) = @_;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"query line"]);    
-    my $sth = $self->_sth( $query );
-
-    my $res = $sth->execute( @qparams );
-    if (!defined $res) {
-        die $sth->errstr;
-    }
-    my @ret = $sth->fetchrow_array;
-    return @ret;
-}
-
-sub _apply_query_array {
-    my ($self, $query, $qparams, $eachrow_fun ) = @_;
-    my $sth = $self->_sth( $query );
-    my $res = $sth->execute( @$qparams );
-    if (!defined $res) {
-        die $sth->errstr;
-    }
-    while ( my @arry = $sth->fetchrow_array ) {
-        $eachrow_fun->(@arry);
-    }
 }
 
 1;

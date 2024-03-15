@@ -27,6 +27,8 @@ my $factory = Factory->new( %args );
 
 $factory->setup;
 
+pass( "HERE" );
+
 done_testing;
 exit;
 

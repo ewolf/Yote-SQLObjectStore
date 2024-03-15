@@ -1,4 +1,4 @@
-package Yote::SQLObjectStore::SQLite::Array;
+package Yote::SQLObjectStore::MariaDB::Array;
 
 use 5.16.0;
 

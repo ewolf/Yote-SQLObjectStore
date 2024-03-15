@@ -52,7 +52,7 @@ sub _walk_for_perl {
 
     for my $mod (@perls) {
         my @reqlist = requires( $mod );
-        if (grep { $_ eq 'Yote::SQLObjectStore::BaseObj' } @reqlist) {
+        if (grep { $_ eq 'Yote::SQLObjectStore::SQLite::Obj' } @reqlist) {
             push @mods, $mod;
         }
     }
