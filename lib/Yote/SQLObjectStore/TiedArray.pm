@@ -108,6 +108,10 @@ sub get {
     &FETCH;
 }
 
+sub set {
+    &STORE;
+}
+
 sub FETCH {
     my( $self, $idx ) = @_;
     $self->{store}->xform_out( $self->{data}[$idx], $self->{value_type} );

@@ -60,6 +60,14 @@ sub value_type {
     return $cols->{$name};
 }
 
+# returns the value type for the given column name
+sub allows_value_type_at_key {
+    my ($me, $value_type, $name) = @_;
+    my $cols = $me->cols;
+    return $cols->{$name};
+}
+
+
 # return table name, which is the reverse of 
 # the package path (most specific first)
 # plus any suffix parts

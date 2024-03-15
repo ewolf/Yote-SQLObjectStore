@@ -51,8 +51,6 @@ sub make_all_tables {
 }
 
 subtest 'reference and reopen test' => sub {
-ok( "DUH" );
-return;
     my $dir = $factory->new_db_name;
 
 
@@ -499,6 +497,7 @@ return;
 };
 
 subtest 'paths test' => sub {
+
     my $dir = $factory->new_db_name;
     {
         my $object_store = Yote::SQLObjectStore->new( 'SQLite',
@@ -510,11 +509,43 @@ subtest 'paths test' => sub {
         is ( $object_store->fetch_path( '/val_hash/word' ), undef, 'nothing yet in val_hash' );
 
         throws_ok
-            { $object_store->ensure_path( '/val_hash/word{VALUE}/beep' ) }
-            qr/not defined to be a reference/, 'ensure_path throws when there is a non-reference in the middle of the path';
+            { $object_store->ensure_path( 'val_hash',
+                                          [ 'word', 'VALUE' ],
+                                          'beep'  ) }
+            qr/invalid path. non-reference encountered before the end/,
+            'ensure_path throws when there is a non-reference in the middle of the path';
+
+        is ($object_store->fetch_path( '/val_hash/word' ), undef, 'check that bird is not yetthe word' );
+
+        is ($object_store->ensure_path( 'val_hash',
+                                        [ 'word', 'bird' ]
+            ), 'bird', 'ensure bird is the word' );
+
+        is ($object_store->fetch_path( '/val_hash/word' ), 'bird', 'check that bird is the word' );
+
+        is ($object_store->fetch_path( '/ref_hash/plugh' ), undef, 'ref hash has no plugh' );
+
+        throws_ok
+            { $object_store->ensure_path( qw( ref_hash plugh )) }
+            qr/requires an object type be given/, 'plugh type not defined';
+
+        throws_ok
+            { $object_store->ensure_path( 'ref_hash',
+                                          [ 'plugh', 'SQLite::NotInINC' ] );
+            }
+            qr/invalid path.*not found in/, 'plugh cant be set to something not found in @INC';
+
+        throws_ok
+            { $object_store->ensure_path( 'ref_hash',
+                                          [ 'plugh', 'SQLite::NotAThing' ] );
+            }
+            qr/.*is not a Yote::SQLObjectStore::BaseObj/, 'plugh cant be set to something not a yote obj';
 
         
-    }    
+        my $something = $object_store->ensure_path( 'ref_hash',
+                                                    [ 'plugh', 'SQLite::SomeThing' ] );
+        ok ($something, 'ensure path returns something' );
+    }
 };
 
 done_testing;

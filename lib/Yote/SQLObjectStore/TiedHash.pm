@@ -132,6 +132,10 @@ sub get {
     &FETCH;
 }
 
+sub set {
+    &STORE;
+}
+
 sub FETCH {
     my( $self, $key ) = @_;
     return $self->{store}->xform_out( $self->{data}{$key}, $self->{value_type} );

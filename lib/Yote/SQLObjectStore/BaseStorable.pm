@@ -35,6 +35,7 @@ sub new {
     }, $pkg;
 }
 
+# does this object match the given type
 sub is_type {
     my ($self, $expected_type) = @_;
     my $type = $self->{type};

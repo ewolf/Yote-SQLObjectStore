@@ -169,6 +169,8 @@ subtest 'reference and reopen test' => sub {
         is_deeply( $root_refs->{ref_hash}, { root => $root }, 'ref hash' );
         is_deeply( $root_refs->{empty_hash}, {}, 'empty ref hash' );
 
+        ok ($object_store->has_id($root_refs), 'hash has an id');
+
         is ($object_store->fetch_path( "/ref_hash/ref_array" ), $root_refs->{ref_array}, 'fetched path containing array' );
         is ($object_store->fetch_path( "/ref_hash/ref_array/2" ), $brad, 'fetched path containing array' );
         is ($object_store->fetch_path( "/ref_hash/ref_array/2/sister" ), $wilma, 'fetched path containing array and reference' );
@@ -196,6 +198,10 @@ subtest 'reference and reopen test' => sub {
         is ($bad->get_sister, undef, 'bad has no sister' );
         $bad->set_something( $bad );
         is ($bad->get_something, $bad, 'bad is its own something' );
+        ok ($object_store->has_id($bad), 'yote obj has an id');
+
+        my $dork = bless { dork => "me" }, 'PKG';
+        ok (!$object_store->has_id($dork), 'non yote blessed has no id');
 
 
         # give bad a "sister" that is an array ref and "brother" that is array vals
@@ -426,9 +432,12 @@ subtest 'reference and reopen test' => sub {
         is_deeply( \@gone, [2], 'spliced away the 2' );
         is_deeply ($val_array, [1,'two',3], 'val array from fetch path' );
 
+        ok ($object_store->has_id($val_array), 'array has an id');
+
         $#$val_array = 100;
         is (@$val_array, 101, 'val array is now 101 long' );
 
+        ok (!$object_store->has_id, 'undef cant have id');
         ok (!$object_store->has_id("a string"), 'a string cant have id');
         use MariaDB::NotAThing;
         my $nodda = bless {}, 'MariaDB::NotAThing';
