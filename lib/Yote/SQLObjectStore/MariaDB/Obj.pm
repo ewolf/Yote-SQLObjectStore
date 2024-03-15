@@ -14,11 +14,11 @@ sub make_table_sql {
     my $cols = $pkg->cols;
     my %converted_cols;
     for my $key (keys %$cols) {
-        my $val = $cols->{$key};
-        if ($val =~ /(ARRAY|HASH)_(REF|VALUE)/) {
-             $val = "INT";
+        my $col_type = $cols->{$key};
+        if ($col_type =~ /(ARRAY|HASH)_(REF|VALUE)/) {
+             $col_type = "INT";
         }
-        $converted_cols{$key} = $val;
+        $converted_cols{$key} = $col_type;
     }
 
     my $table = $pkg->table_name;

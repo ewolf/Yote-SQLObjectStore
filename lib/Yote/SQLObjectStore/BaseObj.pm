@@ -1,37 +1,17 @@
 package Yote::SQLObjectStore::BaseObj;
 
 use 5.16.0;
+use warnings;
 
 no warnings 'uninitialized';
 
-use MIME::Base64;
-
-use constant {
-    ID             => 0,
-    DATA_TYPE      => 1,
-    DATA           => 2,
-    STORE          => 3,
-    HAS_FIRST_SAVE => 4,
-};
-
-#
-# The string version of the objectstore object is simply its id. 
-# This allows object ids to easily be stored as hash keys.
-#
-use overload
-    '""' => sub { my $self = shift; $self->[ID] },
-    eq   => sub { ref($_[1]) && $_[1]->[ID] == $_[0]->[ID] },
-    ne   => sub { ! ref($_[1]) || $_[1]->[ID] != $_[0]->[ID] },
-    '=='   => sub { ref($_[1]) && $_[1]->[ID] == $_[0]->[ID] },
-    '!='   => sub { ! ref($_[1]) || $_[1]->[ID] != $_[0]->[ID] },
-    fallback => 1;
+use base 'Yote::SQLObjectStore::BaseStorable';
 
 sub new {
-    my ($pkg, $id, $table, $data, $store, $has_first_save) = @_;
-    my $obj = bless [
-        $id, $table, $data, $store, $has_first_save || 0
-    ], $pkg;
-    if ($has_first_save) {
+    my $pkg = shift;
+    # in this case datatype is table
+    my $obj = $pkg->SUPER::new( @_ );
+    if ($obj->has_first_save) {
         $obj->_load;
     } else {
         $obj->_init;
@@ -72,36 +52,36 @@ sub table_name {
 sub _init {}
 sub _load {}
 
-#
-# Instance methods
-#
-sub id {
-    return shift->[ID];
-}
-
-sub _has_first_save {
-    return shift->[HAS_FIRST_SAVE];
-}
-
-sub data_type {
-    return shift->[DATA_TYPE];
-}
-
-sub data {
-    return shift->[DATA];
-}
-
-sub store {
-    return shift->[STORE];
-}
-
 sub fields {
     return [sort keys %{shift->cols}];
 }
 
-sub dirty {
-    my $self = shift;
-    $self->[STORE]->dirty( $self->[ID], $self );
+sub save_sql {
+    my ($self) = @_;
+    
+    my $id = $self->id;
+    my $data = $self->data;
+    my $table = $self->table_name;
+    my @col_names = $self->col_names;
+
+    my ($sql);
+
+    my @qparams = map { $data->{$_} } @col_names;
+    if( $self->has_first_save ) {
+        $sql = "UPDATE $table SET ".
+            join(',',  map { "$_=?" } @col_names ).
+            " WHERE id=?";
+        push @qparams, $id;
+    } 
+    else {
+        $sql = "INSERT INTO $table (".
+            join(',', 'id', @col_names).") VALUES (".
+            join(',', ('?') x (1+@col_names) ).
+           ")";
+        unshift @qparams, $id;
+    }
+    return [$sql, @qparams];
+#    return $id, $table, [$sql, @qparams];
 }
 
 sub set {

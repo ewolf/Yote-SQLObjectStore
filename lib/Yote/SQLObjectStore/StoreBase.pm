@@ -5,9 +5,8 @@ use warnings;
 
 no warnings 'uninitialized';
 
-use Yote::ObjectStore::Array;
-use Yote::ObjectStore::Obj;
-use Yote::ObjectStore::Hash;
+use Yote::SQLObjectStore::Array;
+use Yote::SQLObjectStore::Hash;
 
 warn "Yote::Locker needs to be a service somewhere";
 use Yote::Locker;
@@ -18,16 +17,6 @@ use Time::HiRes qw(time);
 use vars qw($VERSION);
 
 $VERSION = '2.06';
-
-use constant {
-    DB_HANDLE    => 0,
-    DIRTY        => 1,
-    WEAK         => 2,
-    OPTIONS      => 3,
-    CACHE        => 4,
-    ROOT_PACKAGE => 5,
-    STATEMENTS   => 6,
-};
 
 =head1 NAME
 
@@ -86,17 +75,19 @@ sub new {
 
     my $dbh = $pkg->connect_sql( %args );
 
-    my $root_package = $args{ROOT_PACKAGE};
-    
-    return bless [
-        $dbh,   # 0
-        {},     # 1
-        {},     # 2
-        \%args, # 3
-        {},     # 4
-        $root_package,
-        {}
-        ], $pkg;
+    my $store = bless {
+        DBH          => $dbh,
+        DIRTY        => {},
+        WEAK         => {},
+        OPTIONS      => \%args,
+        ROOT_PACKAGE => $args{ROOT_PACKAGE},
+        STATEMENTS   => {},
+    }, $pkg;
+
+    $store->make_table_manager;
+
+    return $store;
+
 }
 
 sub open {
@@ -109,21 +100,24 @@ sub open {
 
 sub statements {
     my $self = shift;
-    return $self->[STATEMENTS];
+    return $self->{STATEMENTS};
 }
 
 sub dbh {
     my $self = shift;
-    return $self->[DB_HANDLE];
+    return $self->{DBH};
+}
+
+sub get_table_manager {
+    my $self = shift;
+    return $self->{TABLE_MANAGER};
 }
 
 sub store_obj_data_to_sql {
     my ($self, $obj ) = @_;
 
-    my $ref = $self->tied_item($obj);
-
-    my ($id, $table, @queries) = $ref->save_sql;
-
+#    my ($id, $table, @queries) = $obj->save_sql;
+    my (@queries) = $obj->save_sql;
     for my $q (@queries) {
         my ($update_obj_table_sql, @qparams) = @$q;
         $self->query_do( $update_obj_table_sql, @qparams );
@@ -134,7 +128,7 @@ sub record_count {
     my $self = shift;
 
     my ($count) = $self->query_line( "SELECT count(*) FROM ObjectIndex WHERE live=1" );
-    
+
     return $count;
 }
 
@@ -149,10 +143,18 @@ sub new_obj($*@) {
     my $id = $self->next_id( $table );
 
     my $obj_data = {};
-    my $obj = $pkg->new( $id, $table, $obj_data, $self, 0 );
+    my $obj = $pkg->new( 
+        ID    => $id,
 
-    $self->weak( $id, $obj );
-    $self->dirty( $id, $obj );
+        data  => $obj_data,
+        store => $self,
+        table => $self->get_table_manager->label_to_table($pkg),
+        type  => "*$pkg",
+        
+        %args );
+
+    $self->weak( $obj );
+    $self->dirty( $obj );
 
     if (%args) {
         my $cols = $pkg->cols;
@@ -169,17 +171,67 @@ sub new_obj($*@) {
     return $obj;
 }
 
-sub new_ref_hash {
-    my ($self, %refs) = @_;
-    my $id = $self->next_id( 'HASH_REF' );
-    return $self->tie_hash( {}, $id, 'REF', \%refs );
+sub new_hash {
+    my ($self, $type, %args) = @_;
+
+    my ($key_size, $value_type) = ($type =~ /^\*HASH<(\d+)>_(.*)/);
+
+    die "Cannot create hash of type '$type'" unless $value_type;
+
+    my $id = $self->next_id( $type );
+
+    my $data = {};
+
+    my $hash = Yote::SQLObjectStore::Hash->new(
+        ID         => $id,
+        
+        data       => $data,
+        key_size   => $key_size,
+        store      => $self,
+        table      => $self->get_table_manager->label_to_table($type),
+        type       => $type,
+        value_type => $value_type,
+        );
+
+    $self->weak( $hash );
+    $self->dirty( $hash );
+
+    for my $input_field (keys %args) {
+        $data->{$input_field} = $self->xform_in( $args{$input_field}, $value_type );
+    }
+    return $hash;
 }
 
 
-sub new_ref_array {
-    my ($self, @refs) = @_;
-    my $id = $self->next_id( 'ARRAY_REF' );
-    return $self->tie_array( [], $id, 'REF', \@refs );
+sub new_array {
+    my ($self, $type, @vals) = @_;
+
+    my ($value_type) = ($type =~ /^\*ARRAY_(.*)/);
+
+    die "Cannot create array of type '$type'" unless $value_type;
+
+
+    my $id = $self->next_id( $type );
+
+    my $data = [];
+
+    my $array = Yote::SQLObjectStore::Array->new(
+        ID    => $id,
+        
+        data  => $data,
+        store => $self,
+        table => $self->get_table_manager->label_to_table($type),
+        type  => $type,
+        value_type => $value_type,
+
+        );
+    
+    $self->weak( $array );
+    $self->dirty( $array );
+
+    push @$data, map { $self->xform_in( $_, $value_type ) } @vals;
+
+    return $array;
 }
 
 
@@ -190,6 +242,36 @@ sub xform_in {
 }
 
 
+sub xform_out {
+    my ($self, $value, $def) = @_;
+
+    if( $def !~ /^\*/ || $value == 0 ) {
+        return $value;
+    }
+
+    # other option is a reference and the value is an id
+    return $self->fetch( $value );
+}
+
+sub xform_in_full {
+    my ($self, $value, $type_def, $field) = @_;
+
+    my $ref = ref( $value );
+
+    # check if type is right
+    my $field_value;
+    if ($type_def =~ /^\*/) {
+        die "incorrect type '$type_def'" unless $self->check_type( $value, $type_def );
+        $field_value = $value->id;
+    } else {
+        $field_value = $value;
+    }
+
+    return $value, $field_value;
+}
+
+
+
 =head2 fetch_root()
 
 Returns the root node of the object store.
@@ -198,14 +280,15 @@ Returns the root node of the object store.
 
 sub fetch_root {
     my $self = shift;
-    my $root_package = $self->[ROOT_PACKAGE];
 
+    # the root always has id 1
     my $root_id = 1;
 
     my $root = $self->fetch( $root_id );
     return $root if $root;
 
-    $root = $self->new_obj( $self->[ROOT_PACKAGE] );
+    $root = $self->new_obj( $self->{ROOT_PACKAGE}, 
+                            store => $self );
 
 } #fetch_root
 
@@ -219,14 +302,16 @@ If not given an object, saves all objects marked dirty.
 =cut
 
 sub save {
+
+print STDERR Data::Dumper->Dump(["SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVVVVVVVVVVVVVVVVVVVVE"]);
     my ($self,$obj) = @_;
-    my @dirty = $obj ? ([undef,$obj]) : values %{$self->[DIRTY]};
+    my @dirty = $obj ? ([undef,$obj]) : values %{$self->{DIRTY}};
 
     # start transaction
-    for my $pair (@dirty) {
-        $self->store_obj_data_to_sql( $pair->[1] );
+    for my $item (@dirty) {
+        $self->store_obj_data_to_sql( $item );
     }
-    %{$self->[DIRTY]} = ();
+    %{$self->{DIRTY}} = ();
 
     # end transaction
     return 1;
@@ -242,12 +327,12 @@ Returns the object with the given id.
 sub fetch {
     my ($self, $id) = @_;
     my $obj;
-    if (exists $self->[DIRTY]{$id}) {
-        $obj = $self->[DIRTY]{$id}[0];
+    if (exists $self->{DIRTY}{$id}) {
+        $obj = $self->{DIRTY}{$id};
     } else {
-        $obj = $self->[WEAK]{$id};
+        $obj = $self->{WEAK}{$id};
     }
- 
+
     return $obj if $obj;
 
 
@@ -255,7 +340,7 @@ sub fetch {
 
     return undef unless $obj;
 
-    $self->weak( $id, $obj );
+    $self->weak( $obj );
 
     return $obj;
 }
@@ -300,25 +385,8 @@ sub ensure_path {
             $fetched = ref($fetched) eq 'HASH' ? $fetched->{$segment} : $fetched->get($segment);
         }
         last unless defined $fetched;
-    } 
+    }
 }
-
-
-=head2 tied_item( $obj )
-
-If the object is tied 
-(like Yote::ObjectStore::Array or (like Yote::ObjectStore::Hash) it returns the unlerlying tied object.
-
-=cut
-
-sub tied_item {
-    my ($self, $item) = @_;
-    my $r = ref( $item );
-    my $tied = $r eq 'ARRAY' ? tied @$item
-	: $r eq 'HASH' ? tied %$item
-	: $item;
-    return $tied;
-} #tied_item
 
 
 =head2 is_dirty(obj)
@@ -329,28 +397,17 @@ Returns true if the object need saving.
 
 sub is_dirty {
     my ($self,$obj) = @_;
-    my $id = $self->id_for_item( $obj );
-    return defined( $self->[DIRTY]{$id} );
+    return defined( $self->{DIRTY}{$obj->id} );
 }
-
-=head2 id(obj)
-
-Returns id of object, creating it if necessary.
-
-=cut
-sub id_for_item {
-    my ($self, $item) = @_;
-    my $tied = $self->tied_item($item);
-    return $tied->id;
-} #next_id
 
 # make a weak reference of the reference
 # and save it by id
 sub weak {
-    my ($self,$id,$ref) = @_;
-    $self->[WEAK]{$id} = $ref;
+    my ($self,$ref) = @_;
+    my $id = $ref->id;
+    $self->{WEAK}{$id} = $ref;
 
-    weaken( $self->[WEAK]{$id} );
+    weaken( $self->{WEAK}{$id} );
 }
 
 #
@@ -359,23 +416,23 @@ sub weak {
 # in the DIRTY cache
 #
 sub dirty {
-    my ($self,$id,$obj) = @_;
-    unless ($self->[WEAK]{$id}) {
-	$self->weak($id,$obj);
+    my ($self,$obj) = @_;
+    return unless $obj;
+    my $id = $obj->id;
+    unless ($self->{WEAK}{$id}) {
+	$self->weak($obj);
     }
-    my $target = $self->[WEAK]{$id};
+    my $target = $self->{WEAK}{$id};
 
-    my @dids = keys %{$self->[DIRTY]};
+    my @dids = keys %{$self->{DIRTY}};
 
-    my $tied = $self->tied_item( $target );
-
-    $self->[DIRTY]{$id} = [$target,$tied];
+    $self->{DIRTY}{$id} = $target;
 } #dirty
 
 sub next_id {
-    my ($self, $table) = @_;
-    
-    return $self->insert_get_id( "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)", $table );
+    my ($self, $table_name) = @_;
+
+    return $self->insert_get_id( "INSERT INTO ObjectIndex (tablehandle,live) VALUES(?,1)", $table_name );
 }
 
 
@@ -387,7 +444,7 @@ sub sth {
     my $stats = $self->statements;
     my $dbh   = $self->dbh;
     my $sth   = ($stats->{$query} //= $dbh->prepare( $query ));
-    $sth or die $dbh->errstr;
+    $sth or die "$query : ". $dbh->errstr;
 
     return $sth;
 }
@@ -401,12 +458,12 @@ sub insert_get_id {
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
-    return $id;    
+    return $id;
 }
 
 sub query_all {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
@@ -422,10 +479,12 @@ sub query_all {
 
 sub query_do {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
+        print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
         die $dbh->errstr;
     }
     my $res = $sth->execute( @qparams );
@@ -438,7 +497,7 @@ sub query_do {
 
 sub query_line {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query line"]);    
+    print STDERR Data::Dumper->Dump([$query,\@qparams,"query line"]);
     my $sth = $self->sth( $query );
 
     my $res = $sth->execute( @qparams );
@@ -462,6 +521,68 @@ sub apply_query_array {
 }
 
 
+sub fetch_obj_from_sql {
+    my ($self, $id) = @_;
+
+    my ($handle) = $self->query_line(
+        "SELECT tablehandle FROM ObjectIndex WHERE id=?",
+        $id );
+
+    return undef unless $handle;
+
+    if ($handle =~ /^\*HASH<(\d+)>_(.*)/) {
+        return Yote::SQLObjectStore::Hash->new(
+            ID             => $id,
+
+            data           => {},
+            type           => $handle,
+            data_type      => $handle,
+            has_first_save => 1,
+            key_size       => $1,
+            store          => $self,
+            table          => $self->get_table_manager->label_to_table($handle),
+            value_type     => $2,
+            );
+    }
+    elsif ($handle =~ /^\*ARRAY_(.*)/) {
+        return Yote::SQLObjectStore::Array->new(
+            ID             => $id,
+
+            data           => {},
+            data_type      => $handle,
+            has_first_save => 1,
+            store          => $self,
+            table          => $self->get_table_manager->label_to_table($handle),
+            value_type     => $1,
+            );
+    }
+
+    # otherwise is an object, so grab its data
+
+    my $table = $handle;
+    my $class = join "::", reverse split /_/, $handle;
+
+    my $cols = $class->cols;
+    my @cols = keys %$cols;
+
+    my $sql = "SELECT ".join(',', @cols )." FROM $table WHERE id=?";
+
+    my (@ret) = $self->query_line( $sql, $id );
+
+    my $obj = $class->new( 
+        ID => $id, 
+
+        data => { map { $cols[$_] => $ret[$_] } (0..$#cols) },
+        has_first_save => 1,
+        store => $self, 
+        table => $table, 
+        type  => "*$class",
+
+        );
+
+    return $obj;
+}
+
 "BUUG";
 
 =head1 AUTHOR
@@ -476,4 +597,3 @@ sub apply_query_array {
        Version 1.00  (Feb, 2024))
 
 =cut
-

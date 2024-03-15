@@ -7,7 +7,7 @@ use lib './t/lib';
 use lib './lib';
 
 use Yote::SQLObjectStore::MariaDB;
-use Yote::SQLObjectStore::MariaDB::TableManagement;
+use Yote::SQLObjectStore::MariaDB::TableManager;
 
 use Data::Dumper;
 use File::Temp qw/ :mktemp tempdir /;

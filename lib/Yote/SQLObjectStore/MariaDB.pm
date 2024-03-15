@@ -3,7 +3,7 @@ package Yote::SQLObjectStore::MariaDB;
 use 5.16.0;
 use warnings;
 
-use Yote::SQLObjectStore::MariaDB::TableManagement;
+use Yote::SQLObjectStore::MariaDB::TableManager;
 use base 'Yote::SQLObjectStore::StoreBase';
 
 use Carp qw(confess);
@@ -53,7 +53,7 @@ sub record_count {
 
 sub make_all_tables {
     my $self = shift;
-    my @sql = Yote::SQLObjectStore::MariaDB::TableManagement->all_obj_tables_sql;
+    my @sql = Yote::SQLObjectStore::MariaDB::TableManager->all_obj_tables_sql;
     $self->_query_do( "BEGIN" );
     for my $s (@sql) { $self->_query_do( $s ) }
     $self->_query_do( "COMMIT" );

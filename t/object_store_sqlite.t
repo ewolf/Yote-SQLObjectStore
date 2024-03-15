@@ -7,7 +7,7 @@ use lib './t/lib';
 use lib './lib';
 
 use Yote::SQLObjectStore::SQLite;
-use Yote::SQLObjectStore::SQLite::TableManagement;
+use Yote::SQLObjectStore::SQLite::TableManager;
 
 use Data::Dumper;
 use File::Temp qw/ :mktemp tempdir /;
@@ -27,6 +27,18 @@ my $factory = Factory->new( %args );
 
 $factory->setup;
 # -------------------------------------------------------------
+
+if(0){
+    my $dir = $factory->new_db_handle;
+    my $object_store = Yote::SQLObjectStore::SQLite->new(
+        BASE_DIRECTORY => $dir,
+        );
+    my @sql = $object_store->make_all_tables_sql;
+    print STDERR Data::Dumper->Dump([\@sql,"YEOWCH"]);
+    pass "barf";
+    done_testing;
+    exit;
+}
 
 subtest 'reference and reopen test' => sub {
     my $dir = $factory->new_db_handle;
@@ -54,38 +66,42 @@ subtest 'reference and reopen test' => sub {
         ok ($r1 ne 1, "not the same as a number" );
 
         my $root_vals = $r1->get_val_hash;
-        is_deeply( $root_vals, {}, 'val hash starts empty' );
+        my $root_vals_hash = $root_vals->tied_hash;
+        is_deeply( $root_vals_hash, {}, 'val hash starts empty' );
 
-        $root_vals->{foo} = 'bar';
-        $root_vals->{bar} = 'gaz';
+        $root_vals->set( 'foo', 'bar' );
+        $root_vals->set( 'bar', 'gaz' );
 
-        is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it' );
+        is_deeply( $root_vals_hash, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it' );
 
         # now gotta get stuff in the ref, like a [], {} and obj
         my $root_refs = $r1->get_ref_hash;
 
         # make some object too
-        my $wilma = $object_store->new_obj( 'SomeThing', name => 'wilma' );
-        my $brad = $object_store->new_obj( 'SomeThing', name => 'brad', sister => $wilma  );
+        my $wilma = $object_store->new_obj( 'SQLite::SomeThing', name => 'wilma' );
+        my $brad = $object_store->new_obj( 'SQLite::SomeThing', name => 'brad', sister => $wilma  );
 
         # make some data structures to put in root ref hash
-        my $val_arry = $root_refs->{val_array} = $object_store->new_value_array( 1,2,3 );
-        my $ref_arry = $root_refs->{ref_array} = $object_store->new_ref_array( $r1, $wilma, $brad );
-        my $val_hash = $root_refs->{val_hash} = $object_store->new_value_hash( a => 1, b => 2, c => 3 );
-        my $ref_hash = $root_refs->{ref_hash} = $object_store->new_ref_hash(root => $r1);
-        my $mty = $root_refs->{empty_hash} = $object_store->new_value_hash();
+        my $val_arry = $root_refs->set( 'val_array', $object_store->new_array( '*ARRAY_VALUE', 1,2,3 ))->tied_array;
+        my $ref_arry = $root_refs->set( 'ref_array', $object_store->new_array( '*ARRAY_*', $r1, $wilma, $brad ))->tied_array;
+        my $val_hash = $root_refs->set( 'val_hash', $object_store->new_hash( '*HASH<256>_VALUE', a => 1, b => 2, c => 3 ))->tied_hash;
+
+        my $ref_hash = $root_refs->set( 'ref_hash', $object_store->new_hash( '*HASH<256>_*', root => $r1))->tied_hash;
+
+        my $mty = $root_refs->set( 'empty_hash', $object_store->new_hash( '*HASH<256>_VALUE' ))->tied_hash;
+
         $mty->{fooz} = 'barz';
-        is_deeply( $root_refs->{empty_hash}, { fooz => 'barz' }, 'empty ref hash' );
+        is_deeply( $root_refs->lookup( 'empty_hash' )->tied_hash, { fooz => 'barz' }, 'empty ref hash' );
         delete $mty->{fooz};
-        is_deeply( $root_refs->{empty_hash}, {}, 'empty ref hash' );
+        is_deeply( $root_refs->lookup( 'empty_hash' )->tied_hash, {}, 'empty ref hash' );
 
         is ($brad->get_name, 'brad', 'brad name' );
         is ($brad->get_sister, $wilma, 'brad sister is wilma' );
-        is_deeply( $root_refs->{val_array}, [1,2,3], 'val array' );
-        is_deeply( $root_refs->{ref_array}, [$r1, $wilma, $brad ], 'ref array' );
-        is_deeply( $root_refs->{val_hash}, { a => 1, b => 2, c => 3 }, 'val hash' );
-        is_deeply( $root_refs->{ref_hash}, { root => $r1 }, 'ref hash' );
-        is_deeply( $root_refs->{empty_hash}, {}, 'empty ref hash' );
+        is_deeply( $val_hash, { a => 1, b => 2, c => 3 }, 'val hash' );
+        is_deeply( $ref_hash, { root => $r1 }, 'ref hash' );
+        is_deeply( $val_arry, [1,2,3], 'val array' );
+        is_deeply( $ref_arry, [$r1, $wilma, $brad ], 'ref array' );
+        is_deeply( $mty, {}, 'empty ref hash' );
 
         # data now looks like this
         #   /val_hash/foo -> bar
@@ -137,7 +153,7 @@ subtest 'reference and reopen test' => sub {
         is ($brad->get_name, 'new brad', 'brad new name' );
         $object_store->save;
 
-        my $bad = $object_store->new_obj( 'SomeThing', name => 'bad', sistery => $wilma  );
+        my $bad = $object_store->new_obj( 'SQLite::SomeThing', name => 'bad', sistery => $wilma  );
         is ($bad->get_sister, undef, 'bad has no sister' );
         $bad->set_something( $bad );
         is ($bad->get_something, $bad, 'bad is its own something' );
@@ -167,7 +183,7 @@ subtest 'reference and reopen test' => sub {
                                       tagline
                                   )],
                    'fields for bad and all SomeThing refs' );
-        is( $bad->table_name, 'SomeThing', 'table name for SomeThing refs' );
+        is( $bad->table_name, 'SomeThing_SQLite', 'table name for SomeThing refs' );
 
         push @{$root_refs->{ref_array}}, $bad;
         push @{$root_refs->{ref_array}}, undef;
@@ -256,7 +272,7 @@ subtest 'reference and reopen test' => sub {
         throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/only accepts ARRAY_REF/, 'cannot set a ref hash to a ref array';
         throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/only accepts HASH_REF/, 'cannot set a ref hash to a ref array';
         throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/only accepts HASH_VALUE/, 'cannot set a val array to a val array';
-        throws_ok { $bad->PLUGH } qr/unknown function 'SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
+        throws_ok { $bad->PLUGH } qr/unknown function 'SQLite::SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
 
         throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/only accepts HASH_VALUE/, 'cannot set a val array to a val array';
 
