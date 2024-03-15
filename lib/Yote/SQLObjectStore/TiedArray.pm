@@ -26,8 +26,8 @@ sub tie {
     return $array;
 }
 
-sub data_type {
-    shift->{type};
+sub value_type {
+    shift->{value_type};
 }
 
 sub is_type {

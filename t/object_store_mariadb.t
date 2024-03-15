@@ -68,7 +68,7 @@ subtest 'reference and reopen test' => sub {
         is ($object_store->record_count, 3, 'root record and its hashes in store');
 
         my $r1 = $object_store->fetch_root;
-        ok( $r1, 'got a root' );
+        ok( $r1, 'got a root');
         my $r2 = $object_store->fetch_root;
         is ($r1, $r2, "single reference for fetch root" );
         ok ($r1 == $r2, "same reference compared numerically" );
@@ -187,9 +187,7 @@ subtest 'reference and reopen test' => sub {
         is_deeply( $mtth, { NOTEMPTY => undef}, 'hash with an undef value' );
         delete $mtth->{NOTEMPTY};
         is_deeply( $mtth, {}, 'empty formly empty hash was deleted again' );
-
         $object_store->save;
-
         ok ( !$object_store->is_dirty( $mth ), 'empty hash no longer dirty after save' );
         is_deeply( $mtth, {}, 'back to empty hash' );
 
@@ -206,8 +204,8 @@ subtest 'reference and reopen test' => sub {
         $bad->set_some_ref_array( $bad->get_sister );
         $bad->set_some_val_array( $bad->get_brother ); 
         my $bad_ref_hash = $bad->set_some_ref_hash( $object_store->new_hash('*HASH<256>_*') );
-        my $bad_val_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VARCHAR(100)') );
-        my $bad_val_hash = $bad_val_obj;
+        my $bad_val_hash_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VARCHAR(100)') );
+        my $bad_val_hash = $bad_val_hash_obj;
         $bad_val_hash->{LEEROY} = 'brown';
         is( $bad->get_tagline( "TAGGY" ), "TAGGY", 'set via default get' );
         is_deeply ($bad->get_some_ref_array, [], 'bad ref array is empty array' );
@@ -253,7 +251,7 @@ subtest 'reference and reopen test' => sub {
         $object_store->save( $wilma );
 
 
-        ok (! $object_store->is_dirty( $bad_val_obj ), 'bad val hash is not dirty here' );
+        ok (! $object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is not dirty here' );
         $bad_val_hash->{LEEROY} = 'brown';
         ok (! $object_store->is_dirty( $bad ), 'bad val hash is still not dirty here' );
         delete $bad_val_hash->{NOTHERE};
@@ -263,9 +261,9 @@ subtest 'reference and reopen test' => sub {
         %{$bad_ref_hash} = (); #clear it
         ok (! $object_store->is_dirty( $bad_ref_hash ), 'bad ref hash still not dirty here after clearing it remains the same' );
 
-        ok (! $object_store->is_dirty( $bad_val_obj ), 'bad val hash is not dirty here' );
+        ok (! $object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is not dirty here' );
         %$bad_val_hash = (); #clear it
-        ok ($object_store->is_dirty( $bad_val_obj ), 'bad val hash is dirty after clearing it' ); 
+        ok ($object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is dirty after clearing it' ); 
         # not saving it though, so the clearing wont show up next load
 
 
@@ -281,6 +279,7 @@ subtest 'reference and reopen test' => sub {
         $object_store->open;
         my $root = $object_store->fetch_root;
         my $root_vals = $root->get_val_hash;
+
         is_deeply( $root_vals, { foo  => 'bar', 
                                  zork => 'money',
                                  bar  => 'gaz'}, 'val hash with stuff in it after reopen' );
@@ -391,14 +390,14 @@ subtest 'reference and reopen test' => sub {
         my $bad = $object_store->fetch_path( "/ref_hash/ref_array/3" );
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3/some_val_array/100" ), "ONEHUND", 'fetched path containing indexes array value' );
 
-        my $bad_val_obj = $bad->get_some_val_array;
+        my $bad_val_hash_obj = $bad->get_some_val_array;
         
-        ok (!$object_store->is_dirty( $bad_val_obj ), 'some val obj not dirty' );
-        $bad_val_obj->[100] = 'ONEHUND';
-        ok (!$object_store->is_dirty( $bad_val_obj ), 'some val obj still not dirty after setting an index to the value it already is' );
+        ok (!$object_store->is_dirty( $bad_val_hash_obj ), 'some val obj not dirty' );
+        $bad_val_hash_obj->[100] = 'ONEHUND';
+        ok (!$object_store->is_dirty( $bad_val_hash_obj ), 'some val obj still not dirty after setting an index to the value it already is' );
 
 
-        my $bad_val_array = $bad_val_obj;
+        my $bad_val_array = $bad_val_hash_obj;
         is (@$bad_val_array, 101, '101 entries for bad val array' );
         my $undef = shift @$bad_val_array;
         is ($undef, undef, 'shifted undef value');
@@ -416,10 +415,10 @@ subtest 'reference and reopen test' => sub {
         is (@$bad_val_array, 100, 'bad val array now at 100 size after unshift' );
 
         $object_store->save;
-        ok (!$object_store->is_dirty( $bad_val_obj ), 'bad val array now not dirty after save' );
+        ok (!$object_store->is_dirty( $bad_val_hash_obj ), 'bad val array now not dirty after save' );
         no warnings 'syntax';
         unshift @$bad_val_array;
-        ok (!$object_store->is_dirty( $bad_val_obj ), 'bad val array now not dirty after useless unshift' );
+        ok (!$object_store->is_dirty( $bad_val_hash_obj ), 'bad val array now not dirty after useless unshift' );
 
         my $val_array = $object_store->fetch_path( "/ref_hash/val_array" );
         is_deeply ($val_array, [1,2,3], 'val array from fetch path' );

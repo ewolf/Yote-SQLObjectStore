@@ -60,4 +60,15 @@ sub has_table {
     return $has_table;
 }
 
+
+sub _start_transaction {
+    shift->query_line( "BEGIN TRANSACTION" );
+}
+sub _commit_transaction {
+    shift->query_line( "COMMIT TRANSACTION" );
+}
+sub _rollback_transaction {
+    shift->query_line( "ROLLBACK TRANSACTION" );
+}
+
 1;

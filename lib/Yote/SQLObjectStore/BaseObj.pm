@@ -53,8 +53,8 @@ sub col_names {
     return sort keys %$cols;
 }
 
-# returns the column type for the given column name
-sub col_type {
+# returns the value type for the given column name
+sub value_type {
     my ($me, $name) = @_;
     my $cols = $me->cols;
     return $cols->{$name};

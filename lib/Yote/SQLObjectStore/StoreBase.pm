@@ -135,14 +135,12 @@ sub record_count {
 sub make_all_tables {
     my $self = shift;
     my @sql = $self->make_all_tables_sql;
-    $self->query_do( "BEGIN" );
+    $self->start_transaction;
     for my $s (@sql) {
         my ($query, @qparams) = @$s;
-#print STDERR "MAKE > $query (@qparams)\n";
         $self->query_do( $query, @qparams );
     }
-    $self->query_do( "COMMIT" );
-#$self->print_query_output( "SELECT name FROM sqlite_master WHERE type='table'" );
+    $self->commit_transaction;
 
 }
 
@@ -159,12 +157,13 @@ sub check_table {
     my $name2table = {};
     $manager->generate_reference_table( $name2table, $table_label );
     my @sql = $manager->tables_sql_updates( $name2table );
-    $self->query_do( "BEGIN" );
+
+    $self->start_transaction;
     for my $s (@sql) {
         my ($query, @qparams) = @$s;
         $self->query_do( $query, @qparams );
     }
-    $self->query_do( "COMMIT" );
+    $self->commit_transaction;
 }
 
 sub new_obj($*@) {
@@ -364,22 +363,17 @@ sub save {
     my @dirty = $obj ? ($obj) : values %{$self->{DIRTY}};
 
     # start transaction
-    $self->_start_transaction;
+    $self->start_transaction;
     for my $item (@dirty) {
         $self->store_obj_data_to_sql( $item );
     }
     %{$self->{DIRTY}} = ();
 
-    $self->_commit_transaction;
+    $self->commit_transaction;
 
     # end transaction
     return 1;
 } #save
-
-
-sub _start_transaction {}
-sub _commit_transaction {}
-sub _abort_transaction {}
 
 =head2 fetch( $id )
 
@@ -407,6 +401,12 @@ sub fetch {
     return $obj;
 }
 
+#
+# given a from_id referencing a container, and a key or index to that 
+# container, return one of the following
+#   0, 'value'
+#   ref_id, undef
+#
 sub _fetch_refid_or_val {
     my ($self, $from_id, $key_or_index) = @_;
 
@@ -460,7 +460,7 @@ sub _fetch_refid_or_val {
 
     require "$package_file.pm";
 
-    die "Invalid Column Name for yote '$key_or_index'" if $key_or_index =~ /[^_a-zA-Z0-9]/;
+    die "Invalid Column Name for yote '$key_or_index'" if $key_or_index =~ /[^-_a-zA-Z0-9]/;
     my ($val) = $self->query_line( "SELECT $key_or_index FROM $table WHERE id=?", $from_id );
 
     my $cols = $objectclass->cols;
@@ -490,196 +490,122 @@ sub fetch_path {
 }
 
 sub ensure_path {
-#     my ($self, $path) = @_;
-#     my @path = grep { $_ ne '' } split '/', $path;
+    my ($self, $path) = @_;
+    my @path = grep { $_ ne '' } split '/', $path;
 
-#     my $current_ref = $self->fetch_root; # always a root
-#     my $from_id = $self->root_id;
+    my $current_ref = $self->fetch_root; # always a root
+    my $from_id = $self->root_id;
 
-#     $self->_start_transaction();
+    $self->start_transaction();
+print STDERR Data::Dumper->Dump([\@path,$@,"PATH ENS"]);
+    my $new_value;
+    while (my $segment = shift @path) {
+        my ($key_or_index, $insert_type_or_value) = ( $segment =~ /^([^{]+)(\{[^\}]+\})?$/ );
+        if (!$key_or_index) {
+            $self->rollback_transaction();
+            die "invalid path '$path', '$segment' is malformed";
+        }
+        if ($insert_type_or_value) {
+            ( $insert_type_or_value ) = ( $insert_type_or_value =~ /^\{(.+)\}$/ );
+        }
 
-#     while (my $segment = shift @path) {
-#         my ($key, $array_idx, $col_def) = ( $segment =~ /^([^\[]+)(\[\d+\]+)?(\{[^\}]+\})?$/ );
-#         if (!$key) {
-#             die "invalid path '$path', '$segment' is malformed";
-#         }
-#         if ($col_def) {
-#             ( $col_def ) = ( $col_def =~ /^\{(.+)\}$/ );
-#         }
-#         if ($array_idx) {
-#             ( $array_idx ) = ( $array_idx =~ /^\[(\d+)\]$/ );
-#         }
+        #
+        # see if the key has a value already. if there is a ref_id, then val
+        # is a reference. If there isno ref_id, val is a scalar value.
+        #
+        my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $key_or_index );
 
+print STDERR Data::Dumper->Dump([\@path,"REMPATH"]);
+print STDERR "'$segment'($key_or_index) -> $ref_id,$val,$insert_type_or_value\n";
 
-#         # see if the key has a value already
-#         my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $key );
+        #
+        # key is there, then check if its an array element that is there.
+        # if there after the check, set the current from_id and loop again
+        #
+        if ($ref_id) {
+            $from_id = $ref_id;
+            $current_ref = $self->fetch( $ref_id );
+            next;
+        } elsif (defined $val) {
+            if (@path) {
+                $self->rollback_transaction();
+                die "invalid path '$path', '$segment' is not a reference";
+            }
+            if ($insert_type_or_value && $insert_type_or_value ne $val) {
+                $self->rollback_transaction();
+                die "value at '$path' is '$val', not '$insert_type_or_value'";
+            }
+            $self->commit_transaction();
+            return $val;
+        }
 
-#         # key is there, then check if its an array element that is there.
-#         # if there after the check, set the current from_id and loop again
-#         if ($ref_id) {
-#             if (defined $array_idx) {
-#                 ($ref_id,$val) = $self->_fetch_refid_or_val( $ref_id, $key );
-#             }
-#             if ($ref_id) {
-#                 $from_id = $ref_id;
-#                 $current_ref = $val;
-#                 next;
-#             } elsif (@path) {
-#                 die "invalid path '$path', '$segment' is not a reference";
-#             }
-#         } elsif (defined $val) {
-#             die "invalid path '$path', '$segment' is not a reference" if @path;
-#             return $val;
-#         }
+        #
+        # nothing is yet keyed to that segment, so create the thing and fill it
+        #
+        # the thing is attached to the current ref. is the current ref
+        # an array, hash or class?
+        #
+        my $curr_obj = _yoteobj( $current_ref );
 
-#         # now have to try to create the thing
-        
-#         # the thing is attached to the current ref. is the current ref
-#         # an array, hash or class?
-#         my $curr_obj = _yoteobj( $current_ref );
+        my $is_hash  = $curr_obj->isa('Yote::SQLObjectStore::TiedHash');
+        my $is_array = (! $is_hash) && $curr_obj->isa('Yote::SQLObjectStore::TiedArray');
 
-#         my $is_hash  = $curr_obj->isa('Yote::SQLObjectStore::TiedHash');
-#         my $is_array = (! $is_hash) && $curr_obj->isa('Yote::SQLObjectStore::TiedArray');
+        if ($is_array && $key_or_index !~ /^[0-9]+$/) {
+            $self->rollback_transaction();
+            die "invalid path '$path', array access expects index";
+        }
+        if ($is_hash && length( $key_or_index ) > $curr_obj->key_size) {
+            $self->rollback_transaction();
+            die "invalid path '$path', '$segment' key too large";
+        }
 
-#         if ($is_hash) { # /somehash/foo{deforval}
-#             die "invalid path '$path', '$segment' key too large"
-#                 if length( $key ) > $curr_obj->key_size;
+        #
+        # what type does the object want for the field?
+        #
+        my $value_type = $curr_obj->value_type( $key_or_index );
+print STDERR Data::Dumper->Dump([$value_type,"VEET"]);
+        if ($value_type =~ /^\*/) { # reference
+            if ($insert_type_or_value && ! $curr_obj->is_type( $insert_type_or_value )) {
+                $self->rollback_transaction();
+print STDERR Data::Dumper->Dump([$curr_obj,"CURRO"]); # 
+                die "invalid path '$path', '$segment' is wrong type. Expected '$value_type'";
+            }
 
+            eval {
+                $new_value = $self->_new_thing( $value_type );
+                $from_id = _yoteobj( $new_value )->id;
+            };
+            if ($@ || ! $new_value) {
+print STDERR Data::Dumper->Dump([$@,$new_value,$value_type,"HUH"]);
+                $self->rollback_transaction();
+                return;
+            }
 
-#             my $value_type = $curr_obj->data_type;
+        } elsif( @path ) {
+            $self->rollback_transaction();
+            die "invalid path '$path', '$segment' is not defined to be a reference";
+        } else {
+            $new_value = $insert_type_or_value;
+        }
 
-#             if ($value_type =~ /^\*/) {
-#                 if ($col_def) {
-#                     die "invalid path '$path', '$segment' is wrong type"
-#                         unless $curr_obj->is_type( $col_def );
-#                 }
-#                 my $thing;
-#                 eval {
-#                     $thing = $self->_new_thing( $value_type );
-#                 };
-#                 if ($@ || ! $thing) {
-#                     $self->_rollback_transaction();
-#                     return;
-#                 }
-                
-#                 $current_ref->{$key} = $thing;
+        #
+        # install the new thing at the path reference
+        #
+        if ($is_array) {
+            $current_ref->[$key_or_index] = $new_value;
+        }
+        elsif ($is_hash) {
+            $current_ref->{$key_or_index} = $new_value;
+        }
+        else {
+            $current_ref->set( $key_or_index, $new_value );
+        }
+        $current_ref = $new_value;
+    }
 
-#                 if (0 == @path) {
-#                     return $thing;
-#                     #return the thing
-#                 }
-#             } elsif( @path ) {
-#                 die "invalid path '$path', '$segment' is not defined to be a reference";
-#             } else {
-#                 $current_ref->{$key} = $col_def;
-#                 return $col_def;
-#             }
-
-#         }
-
-#         elsif ($is_array) { # /somearray[12]{deforval}
-
-#             if (@path && (! defined $array_idx)) {
-#                 die "invalid path '$path', '$segment' must include index for array unless it is the last part of the path";
-#             }
-
-#             my $value_type = $curr_obj->data_type;
-
-#             if ($value_type =~ /^\*/) {
-#                 if ($col_def) {
-#                     die "invalid path '$path', '$segment' is wrong type"
-#                         unless $curr_obj->is_type( $col_def );
-#                 }
-#                 my $thing;
-#                 eval {
-#                     $thing = $self->_new_thing( $value_type );
-#                 };
-#                 if ($@ || ! $thing) {
-#                     $self->_rollback_transaction();
-#                     return;
-#                 }
-
-#                 $current_ref->[$array_idx] = $thing;
-
-#                 if (0 == @path) {
-#                     return $thing;
-#                     #return the thing
-#                 }
-#             } elsif( @path ) {
-#                 die "invalid path '$path', '$segment' is not defined to be a reference";
-#             } else {
-#                 $current_ref->[$array_idx] = $col_def;
-#                 return $col_def;
-#             }
-
-#         }
-
-#         if ($is_hash || $is_array) {
-#             $value_type = $curr_obj->data_type;
-
-#             # check to make sure key size is correct if a hash
-#             if ($is_hash) { 
-#                 die "invalid path '$path', '$segment' key too large"
-#                     if length( $key ) > $curr_obj->key_size;
-                
-#             }
-            
-#             my $new_segment_val;
-#             # if the type is a reference
-#             if ($value_type =~ /^\*/) {
-                
-#             } elsif( @path ) {
-#                 die "invalid path '$path', '$segment' is not defined to be a reference";
-#             } else {
-#                 $new_segment_val = 
-#             }
-#         }
-#         # otherwise a yote object
-#         else {
-#             $value_type = $curr_obj->col_type( $key );
-#             if ($col_def && $value_type ne $col_def) {
-#                 die "invalid path '$path', '$segment' requests '$col_def' but key '$key' requires '$value_type'";
-#             }
-#             # create and set the thing
-#         }
-        
-
-#         my $next_part = $current_ref->get( $key );
-#         if (defined $next_part) {
-#             if (0 == @path) {
-#                 return $next_part;
-#             }
-#             if (! ref $next_part) {
-#                 die "invalid path '$path', '$segment' is not a reference" if @path;
-#             }
-#             $current_ref = $next_part;
-#             $from_id = $
-#             next;
-#         }
-
-
-#         if ($segment =~ /(.*)\[(\d+)\]$/) { #list or list segment
-#             my ($list_name, $idx) = ($1, $2);
-#             my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $list_name );
-#             die "invalid path '$path', '$segment' is not an array reference" unless $ref;
-#             ($ref_id,$val,my @rest) = $self->_fetch_refid_or_val( $ref_id, $idx );
-#             if (! $ref_id) {
-#                 die "invalid path '$path', '$segment' is not a reference" if @path;
-#                 return $val;
-#             }
-#             $from_id = $ref_id;
-#         } else {
-#             my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $segment );
-#             if (! $ref_id) {
-#                 die "invalid path '$path', '$segment' is not a reference" if @path;
-#                 return $val;
-#             }
-#             $from_id = $ref_id;
-#         }
-#     }
-# #    $self->_rollback_transaction();
-#     return $self->fetch( $from_id );
-}
+    $self->commit_transaction();
+    return $new_value;
+} #ensure_path
 
 
 =head2 is_dirty(obj)
@@ -780,6 +706,7 @@ sub query_do {
     }
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,$sth->errstr,"BADO"]);
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
@@ -795,7 +722,6 @@ sub query_line {
         die $sth->errstr;
     }
     my @ret = $sth->fetchrow_array;
-
     return @ret;
 }
 
@@ -820,6 +746,24 @@ sub apply_query_array {
     }
 }
 
+sub start_transaction {
+    my $self = shift;
+    return if $self->{in_transaction};
+    $self->_start_transaction;
+    $self->{in_transaction} = 1;
+}
+sub commit_transaction {
+    my $self = shift;
+    return unless $self->{in_transaction};
+    $self->_commit_transaction;
+    $self->{in_transaction} = 0;
+}
+sub rollback_transaction {
+    my $self = shift;
+    return unless $self->{in_transaction};
+    $self->_rollback_transaction;
+    $self->{in_transaction} = 0;
+}
 
 sub fetch_obj_from_sql {
     my ($self, $id) = @_;
