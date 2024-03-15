@@ -36,8 +36,9 @@ sub walk_for_perl {
         next if $files{$as_path};
         next if $seen_packages->{$mod}++;
 
-        my @reqlist = grep { $_ !~ /^(base|strict|warnings)$/ } requires( $mod );
-        if (grep { $_ eq $base_obj_pkg } @reqlist) {
+        my @reqlist = grep { $_ && $_ !~ /^(base|strict|warnings)$/ } requires( $mod );
+        if ( $mod->isa( $base_obj_pkg ) or 
+             grep { $_ eq $base_obj_pkg } @reqlist) {
             push @mods, $mod;
         }
     }
@@ -127,8 +128,6 @@ sub generate_hash_table {
     $name2table->{$table_name} = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';
 
-#print STDERR "%)$table_label)$table_name)$name2table->{$table_name}\n";
-
     $self->generate_reference_table($name2table,$field_value) if $is_ref;
 }
 
@@ -174,8 +173,6 @@ sub generate_array_table {
 
     $name2table->{$table_name} = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';
-
-#print STDERR "@)$table_label)$table_name)$name2table->{$table_name}\n";
 
     $self->generate_reference_table($name2table,$field_value) if $is_ref;
 }
@@ -236,8 +233,6 @@ sub generate_table_from_module {
 
     $name2table->{$table_name} = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';
-
-#print STDERR "R)$table_label)$table_name)$name2table->{$table_name}\n";
 
     for my $ref_type (@ref_types) {
         $self->generate_reference_table($name2table,$ref_type);
@@ -343,12 +338,12 @@ sub tables_sql_updates {
                     # update the column. is a list. for example sqlite needs more than one sql commands
                     # to change a column
                     my @update_sql = $self->change_column( $table_name, $col_name, $col_def );
-                    push @sql, [@update_sql];
+                    push @sql, map { [$_] } @update_sql;
                 }
                 else {
                     #this column is new
                     my @new_sql = $self->new_column( $table_name, $col_name, $col_def );
-                    push @sql, [@new_sql];
+                    push @sql, map { [$_] }@new_sql;
                 }
             }
 
@@ -357,7 +352,7 @@ sub tables_sql_updates {
                 my ($col_name, $col_def) = split /\s+/, $col, 2;
                 next if $seen{$col_name};
                 my @new_sql = $self->archive_column( $table_name, $col_name, $col_def );
-                push @sql, [@new_sql];
+                push @sql, map { [$_] }@new_sql;
 
             }
         }

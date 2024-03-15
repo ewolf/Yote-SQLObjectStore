@@ -8,9 +8,6 @@ no warnings 'uninitialized';
 use Yote::SQLObjectStore::TiedArray;
 use Yote::SQLObjectStore::TiedHash;
 
-#warn "Yote::Locker needs to be a service somewhere";
-use Yote::Locker;
-
 use Scalar::Util qw(weaken blessed);
 use Time::HiRes qw(time);
 
@@ -33,7 +30,7 @@ Yote::SQLObjectStore - store and lazy load perl objects, hashes and arrays.
 
  my $obj_store = Yote::ObjectStore::open_object_store( $rec_store );
 
- $obj_store->lock;
+ $obj_store->lock( 'some tag' );
 
  my $root = $obj_store->fetch_root;
 
@@ -43,7 +40,7 @@ Yote::SQLObjectStore - store and lazy load perl objects, hashes and arrays.
 
  $obj_store->save;
 
- $obj_store->unlock;
+ $obj_store->unlock( 'some tag' );
 
 =head1 DESCRIPTION
 
@@ -520,11 +517,26 @@ sub fetch_string_path {
     $self->fetch_path(@path);
 }
 
-# get a path from the data structure from the list of path elements
+# fetch item from the root following that path
 sub fetch_path {
     my ($self, @path) = @_;
-
     my $from_id = $self->root_id;
+    return $self->_fetch_rel_path( $from_id, @path );
+}
+
+# fetch item from the root following that path
+sub fetch_rel_path {
+    my ($self, $item, @path) = @_;
+    my $from_id = _yoteobj($item)->id;
+    return $self->_fetch_rel_path( $from_id, @path );
+}
+
+
+# fetch item from the item at the given id following that path
+sub _fetch_rel_path {
+    my ($self, $from_id, @path) = @_;
+
+
     while (defined(my $segment = shift @path)) {
         my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $segment );
         if ($ref_id) {
@@ -732,8 +744,19 @@ sub del_path {
     $old_val;
 }
 
+sub set_rel_path {
+    my ($self, $item, @path) = @_;
+    my $from_id = _yoteobj($item)->id;
+    return $self->_set_path_trans( $from_id, @path );
+}
+
 sub set_path {
     my ($self, @path) = @_;
+    return $self->_set_path_trans( $self->root_id, @path );
+}
+
+sub _set_path_trans {
+    my ($self, $from_id, @path) = @_;
     if (@path < 2) {
         die "set_path. path '@path' not long enough to set";
     }
@@ -741,7 +764,7 @@ sub set_path {
     my $endpoint;
     $self->{temp_refs} = {};
     eval {
-        $endpoint = $self->_set_path( @path );
+        $endpoint = $self->_set_path( $from_id, @path );
     };
     if (my $err = $@) {
         for my $id (keys %{$self->{temp_refs}}) {
@@ -756,14 +779,12 @@ sub set_path {
 }
 
 sub _set_path {
-    my ($self, @path ) = @_;
+    my ($self, $from_id, @path ) = @_;
     
     my $set_value   =  pop @path;
     my $insert_key  =  pop @path;
 
     # always starts from root
-    my $current_ref  =   $self->fetch_root;
-    my $from_id      =   $self->root_id;
     while (my $key = shift @path) {
         my ($ref_id) = $self->_fetch_refid_or_val( $from_id, $key );
 
@@ -775,7 +796,7 @@ sub _set_path {
 
         $from_id = $ref_id;
     }
-    $current_ref = $self->fetch( $from_id );
+    my $current_ref = $self->fetch( $from_id );
     my $curr_obj = _yoteobj( $current_ref );
     $curr_obj->set( $insert_key, $set_value );
     return $set_value;
@@ -1048,6 +1069,26 @@ sub check_type {
         $obj->isa( 'Yote::SQLObjectStore::TiedHash' )
         and
         $obj->is_type( $type_def );
+}
+
+sub lock {
+    my ($self, $tag) = @_;
+    $tag =~ s/'//gs;
+    my ($res) = $self->query_line( "SELECT GET_LOCK(?,1)", $tag );
+    if (! defined $res) {
+        warn "lock failed when called for lock tag '$tag'";
+    }
+    return $res;
+}
+
+sub unlock {
+    my ($self, $tag) = @_;
+    $tag =~ s/'//gs;
+    my ($res) = $self->query_line( "SELECT RELEASE_LOCK(?)", $tag );
+    if (! defined $res) {
+        warn "unlock failed when called for unheld lock tag '$tag'";
+    }
+    return $res;
 }
 
 "BUUG";

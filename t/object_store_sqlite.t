@@ -47,7 +47,6 @@ sub make_all_tables {
     my $object_store = shift;
     local @INC = qw( ./lib ./t/lib );
     $object_store->make_all_tables( @INC );
-
 }
 
 subtest 'reference and reopen test' => sub {
