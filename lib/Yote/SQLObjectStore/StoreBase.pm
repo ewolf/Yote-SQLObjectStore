@@ -8,9 +8,6 @@ no warnings 'uninitialized';
 use Yote::SQLObjectStore::TiedArray;
 use Yote::SQLObjectStore::TiedHash;
 
-#warn "Yote::Locker needs to be a service somewhere";
-use Yote::Locker;
-
 use Scalar::Util qw(weaken blessed);
 use Time::HiRes qw(time);
 
@@ -33,7 +30,7 @@ Yote::SQLObjectStore - store and lazy load perl objects, hashes and arrays.
 
  my $obj_store = Yote::ObjectStore::open_object_store( $rec_store );
 
- $obj_store->lock;
+ $obj_store->lock( 'some tag' );
 
  my $root = $obj_store->fetch_root;
 
@@ -43,7 +40,7 @@ Yote::SQLObjectStore - store and lazy load perl objects, hashes and arrays.
 
  $obj_store->save;
 
- $obj_store->unlock;
+ $obj_store->unlock( 'some tag' );
 
 =head1 DESCRIPTION
 
@@ -1073,6 +1070,26 @@ sub check_type {
         $obj->isa( 'Yote::SQLObjectStore::TiedHash' )
         and
         $obj->is_type( $type_def );
+}
+
+sub lock {
+    my ($self, $tag) = @_;
+    $tag =~ s/'//gs;
+    my ($res) = $self->query_line( "SELECT GET_LOCK(?,1)", $tag );
+    if (! defined $res) {
+        warn "lock failed when called for lock tag '$tag'";
+    }
+    return $res;
+}
+
+sub unlock {
+    my ($self, $tag) = @_;
+    $tag =~ s/'//gs;
+    my ($res) = $self->query_line( "SELECT RELEASE_LOCK(?,1)", $tag );
+    if (! defined $res) {
+        warn "unlock failed when called for unheld lock tag '$tag'";
+    }
+    return $res;
 }
 
 "BUUG";
