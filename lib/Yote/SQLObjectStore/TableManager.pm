@@ -37,6 +37,7 @@ sub walk_for_perl {
         next if $seen_packages->{$mod}++;
 
         my @reqlist = grep { $_ !~ /^(base|strict|warnings)$/ } requires( $mod );
+
         if (grep { $_ eq $base_obj_pkg } @reqlist) {
             push @mods, $mod;
         }
