@@ -140,7 +140,7 @@ sub needs_table_updates {
 sub make_all_tables {
     my ($self, @INC_PATH) = @_;
     my @sql = $self->make_all_tables_sql(@INC_PATH);
-#print STDERR Data::Dumper->Dump([\@sql,"MAT"]);
+
     $self->start_transaction;
     for my $s (@sql) {
         my ($query, @qparams) = @$s;

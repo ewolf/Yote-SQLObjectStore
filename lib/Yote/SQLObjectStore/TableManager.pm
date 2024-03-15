@@ -246,7 +246,7 @@ sub generate_tables_sql {
     my ($self, $base_obj_package, @INC_PATH) = @_;
 
     my @mods = $self->find_obj_packages( $base_obj_package, @INC_PATH );
-#print STDERR Data::Dumper->Dump([\@mods,\@INC_PATH,"MODZ"]);
+
     my $name2table = {};
 
     for my $mod (@mods) {
@@ -262,7 +262,6 @@ sub generate_tables_sql {
         next unless grep { $base_obj_package eq $_ } @{mro::get_linear_isa($mod)};
         $self->generate_table_from_module( $name2table, $mod );
     }
-#    print STDERR Data::Dumper->Dump([$name2table,"NN"]);
 
     # now we have table definitions and sql
     my @sql = (
@@ -272,7 +271,6 @@ sub generate_tables_sql {
         );
     push @sql, $self->tables_sql_updates( $name2table );
 
-#print STDERR Data::Dumper->Dump([\@sql,"GOOP"]);
     @sql;
 }
 
@@ -332,7 +330,6 @@ sub tables_sql_updates {
 
             my $signatures_uniq_to_new = $new_columns->difference($old_columns);
             my $signatures_uniq_to_old = $old_columns->difference($new_columns);
-            print STDERR Data::Dumper->Dump([\%new_columns,\%old_columns,[@$signatures_uniq_to_new],[@$signatures_uniq_to_old],$create,"SHOW"]);
 
             my %seen;
             for my $col (@$signatures_uniq_to_new) {
