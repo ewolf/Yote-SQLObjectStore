@@ -34,8 +34,8 @@ Yote::SQLObjectStore - Rooted tree based Object Store atop SQL
               password => 'plugh' );
  my $object_store = Yote::SQLObjectStore->new( $db_type, %args );
 
- # scan packages in @INC for Yote::SQLObjectStore::Obj descendents and build tables for them.
- if ($object_store->needs_table_updates) {
+ # scan packages in given @INC_PATH for Yote::SQLObjectStore::Obj descendents and build tables for them.
+ if ($object_store->needs_table_updates(@INC_PATH) {
    if (CAREFUL) {
      say join("\n", $object_store->make_all_tables_sql );
      say "\nREVIEW THE ABOVE AND RUN THE SQL IF GOOD\n";
