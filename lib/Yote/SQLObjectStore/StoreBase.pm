@@ -149,15 +149,7 @@ sub new_obj($*@) {
     my $id = $self->next_id( $table );
 
     my $obj_data = {};
-    my $obj = bless [
-        $id,
-        $table,
-        $obj_data,
-        $self,
-        0, # NO SAVE IN OBJ TABLE YET 
-        ], $pkg;
-
-    $obj->_init;
+    my $obj = $pkg->new( $id, $table, $obj_data, $self, 0 );
 
     $self->weak( $id, $obj );
     $self->dirty( $id, $obj );

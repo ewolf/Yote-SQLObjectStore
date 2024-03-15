@@ -26,6 +26,20 @@ use overload
     '!='   => sub { ! ref($_[1]) || $_[1]->[ID] != $_[0]->[ID] },
     fallback => 1;
 
+sub new {
+    my ($pkg, $id, $table, $data, $store, $has_first_save) = @_;
+    my $obj = bless [
+        $id, $table, $data, $store, $has_first_save || 0
+    ], $pkg;
+    if ($has_first_save) {
+        $obj->_load;
+    } else {
+        $obj->_init;
+    }
+    return $obj;
+}
+
+
 #
 # columns as a hash of column name -> "SQL type" ||  { type => "SQL type", ... extra indexing stuff i guess? }
 #

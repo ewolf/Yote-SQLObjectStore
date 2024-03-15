@@ -193,15 +193,11 @@ sub fetch_obj_from_sql {
 
     my (@ret) = $self->query_line( $sql, $id );
 
-    my $obj = bless [
-        $id,
-        $table,
-        { map { $cols[$_] => $ret[$_] } (0..$#cols) },
-        $self,
-        1, # HAS SAVE IN TABLE
-        ], $class;
-
-    $obj->_load;
+    my $obj = $class->new( $id, 
+                           $table, 
+                           { map { $cols[$_] => $ret[$_] } (0..$#cols) },
+                           $self, 
+                           1 );
 
     return $obj;
 }
