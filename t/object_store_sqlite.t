@@ -642,8 +642,6 @@ $object_store->ensure_paths( qw(
                                      ) );
         };
 
-print STDERR Data::Dumper->Dump([$@,"BEEPY"]);
-
         throws_ok
         { $something = $object_store->ensure_paths( qw( 
                                          /ref_hash/tinyhash/fu1|GLACK
