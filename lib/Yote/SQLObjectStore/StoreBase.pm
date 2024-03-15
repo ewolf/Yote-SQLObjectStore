@@ -597,11 +597,11 @@ sub _convert_string_path {
 # where 'index' is for arrays and 'key' is for hashes
 sub _ensure_path {
     my ($self, @path) = @_;
-print STDERR Data::Dumper->Dump([\@path,"PATH 1"]);
+
     if (@path == 1 && !ref $path[0]) {
         @path = _convert_string_path( $path[0] );
     }
-print STDERR Data::Dumper->Dump([\@path,"PATH 2"]);
+
     # always starts from root
     my $current_ref = $self->fetch_root; 
     my $from_id = $self->root_id;
@@ -612,7 +612,6 @@ print STDERR Data::Dumper->Dump([\@path,"PATH 2"]);
         die "invalid path. missing key" if ! $key;
 
         my ($ref_id, $val, $expected_value_type) = $self->_fetch_refid_or_val( $from_id, $key );
-print STDERR Data::Dumper->Dump(["key $key, cls_or_val $cls_or_val, refid $ref_id, val $val, evt $expected_value_type"]);
         if (! $expected_value_type) { # not a reference
             die "invalid path. non-reference encountered before the end" if @path;
             if (defined $cls_or_val and defined $val) {
@@ -652,7 +651,6 @@ print STDERR Data::Dumper->Dump(["key $key, cls_or_val $cls_or_val, refid $ref_i
         $cls_or_val //= $expected_value_type;
 
         if ($cls_or_val eq '*') {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,"EVT $expected_value_type"]);
             die "invalid path. wildcard slot requires an object type be given when placing into that slot";
         }
 
@@ -777,6 +775,7 @@ sub query_do {
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,$dbh->errstr,"NOWOO"]);
         die $dbh->errstr;
     }
     my $res = $sth->execute( @qparams );

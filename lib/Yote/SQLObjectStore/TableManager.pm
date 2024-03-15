@@ -3,6 +3,7 @@ package Yote::SQLObjectStore::TableManager;
 use 5.16.0;
 use warnings;
 
+use mro;
 use File::Grep qw(fgrep fmap fdo);
 use Module::Load::Conditional qw(requires can_load);
 use Set::Scalar;
@@ -248,6 +249,14 @@ sub generate_tables_sql {
     my $name2table = {};
 
     for my $mod (@mods) {
+        eval {
+            my $package_file = $mod;
+            $package_file =~ s/::/\//g;
+            
+            require "$package_file.pm";
+        };
+        next if $@;
+        next unless grep { $base_obj_package eq $_ } @{mro::get_linear_isa($mod)};
         $self->generate_table_from_module( $name2table, $mod );
     }
 #    print STDERR Data::Dumper->Dump([$name2table,"NN"]);

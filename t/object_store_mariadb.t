@@ -616,6 +616,8 @@ subtest 'paths test' => sub {
         
         is ($object_store->ensure_path( '/ref_hash/tinyhash/foo|BAR' ), 'BAR', 'made a tiny entry' );
 
+        $object_store->save;
+
         throws_ok
         { $object_store->ensure_path( '/ref_hash/tinyhash/fooLong|NOWAY' ); }
         qr/key is too large for hash/,
@@ -635,6 +637,8 @@ subtest 'paths test' => sub {
         my $thing = $object_store->ensure_path( '/ref_hash/somethingHash/afirst|*MariaDB::SomeThing' );
         is (ref $thing, 'MariaDB::SomeThing', 'made something obj' );
 
+        $object_store->save;
+
         throws_ok
         { $something = $object_store->ensure_path( '/ref_hash/somethingHash/nothere|*MariaDB::SomeThingElse' );
         }
@@ -645,20 +649,9 @@ subtest 'paths test' => sub {
         $object_store->ensure_paths( qw( 
                                          /ref_hash/tinyhash/fuu|BUR
                                          /ref_hash/tinyhash/boo|FAR
-                                     ) );
+                                        ) );
         is ( $object_store->fetch_path( '/ref_hash/tinyhash/boo' ), 'FAR', 'ensure paths worked 1' );
         is ( $object_store->fetch_path( '/ref_hash/tinyhash/fuu' ), 'BUR', 'ensure paths worked 2' );
-
-        eval {
-$object_store->ensure_paths( qw( 
-                                         /ref_hash/tinyhash/fu1|GLACK
-                                         /ref_hash/tinyhash/bo1|NOOOO
-                                         /ref_hash/tinyhash/noway|FAR/gah
-                                     ) );
-        };
-
-print STDERR Data::Dumper->Dump([$@,"BEEPY"]);
-print STDERR Data::Dumper->Dump([$object_store->fetch_path( '/ref_hash/tinyhash/fu1' ),"UM"]);
 
         throws_ok
         { $something = $object_store->ensure_paths( qw( 

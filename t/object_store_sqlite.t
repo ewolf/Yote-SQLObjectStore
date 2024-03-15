@@ -499,6 +499,7 @@ subtest 'reference and reopen test' => sub {
 subtest 'paths test' => sub {
 
     my $dir = $factory->new_db_name;
+
     {
         my $object_store = Yote::SQLObjectStore->new( 'SQLite',
             BASE_DIRECTORY => $dir,
@@ -593,9 +594,11 @@ subtest 'paths test' => sub {
         
 
         my $tiny_hash = $object_store->ensure_path( '/ref_hash/tinyhash|*HASH<3>_VALUE' );
+
         is (ref $tiny_hash, 'HASH', 'made a tiny hash' );
         
         is ($object_store->ensure_path( '/ref_hash/tinyhash/foo|BAR' ), 'BAR', 'made a tiny entry' );
+        $object_store->save;
 
         throws_ok
         { $object_store->ensure_path( '/ref_hash/tinyhash/fooLong|NOWAY' ); }

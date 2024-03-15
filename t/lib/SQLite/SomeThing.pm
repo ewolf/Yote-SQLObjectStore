@@ -2,6 +2,7 @@ package SQLite::SomeThing;
 
 use 5.16.0;
 use warnings; 
+use Data::Dumper;
 
 use base 'Yote::SQLObjectStore::SQLite::Obj';
 
