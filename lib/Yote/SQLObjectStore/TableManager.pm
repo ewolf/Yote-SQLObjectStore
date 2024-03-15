@@ -31,7 +31,8 @@ sub walk_for_perl {
         my $as_path = join( '/', split( /::/, $mod)) . '.pm';
         next if $files{$as_path};
         next if $seen_packages->{$mod}++;
-        my @reqlist = requires( $mod );
+
+        my @reqlist = grep { $_ !~ /^(base|strict|warnings)$/ } requires( $mod );
         if (grep { $_ eq $base_obj_pkg } @reqlist) {
             push @mods, $mod;
         }
@@ -245,6 +246,7 @@ sub generate_tables_sql {
     my ($self, $base_obj_package, @INC_PATH) = @_;
     
     my @mods = $self->find_obj_packages( $base_obj_package, @INC_PATH );
+
     my $name2table = {};
 
     for my $mod (@mods) {
@@ -254,7 +256,9 @@ sub generate_tables_sql {
             
             require "$package_file.pm";
         };
+
         next if $@;
+
         next unless grep { $base_obj_package eq $_ } @{mro::get_linear_isa($mod)};
         $self->generate_table_from_module( $name2table, $mod );
     }

@@ -516,10 +516,18 @@ sub _fetch_refid_or_val {
     return 0, $val;
 }
 
-# get a path from the data structure
+# get a path from the data structure given a forward slash delimited string
+# plus any additional path elements
+sub fetch_string_path {
+    my ($self, $path, @rest) = @_;
+    my @path = ((grep { $_ ne '' } split '/', $path), @rest);
+    $self->fetch_path(@path);
+}
+
+# get a path from the data structure from the list of path elements
 sub fetch_path {
-    my ($self, $path) = @_;
-    my @path = grep { $_ ne '' } split '/', $path;
+    my ($self, @path) = @_;
+
 
     my $from_id = $self->root_id;
     while (defined(my $segment = shift @path)) {

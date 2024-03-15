@@ -48,7 +48,7 @@ Yote::SQLObjectStore - Rooted tree based Object Store atop SQL
 
  $object_store->open;
 
- my $users = $root->fetch_path( '/users' );
+ my $users = $root->fetch_string_path( '/users' );
 
  my $bob = $object_store->new_obj( 'MyProject::User',    # package (see below)
                                    name     => 'robert', # fields/values
@@ -58,14 +58,24 @@ Yote::SQLObjectStore - Rooted tree based Object Store atop SQL
 
  $object_store->save;
 
- my $name = $object_store->fetch_path( "/users/bob/name" );
+ my $name = $object_store->fetch_string_path( "/users/bob/name" );
  say $name; #robert
+
+ my $sue = $object_store->new_obj( 'MyProject::User',    # package (see below)
+                                   name     => '/sue the slasher', # fields/values
+                                   email    => 'hackhackslas@dnd.org',
+                                   password => crypt( "zorsdfbi" ) );
+
+ $users->{"/sue"} = $sue;
+
+ my $sue_name = $object_store->fetch_string_path( 'users', '/sue', 'name' ) );
+ say $sue_name; # /sue the slasher
 
 
  package MyProject::Root;
    use base 'Yote::SQLObjectStore::MariaDB::Obj';
    our %cols = (
-      users => '*HASH<256>_User::MyProject'
+      users => '*HASH<256>_*User::MyProject'
    );
  1;
 
