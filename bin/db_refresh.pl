@@ -40,7 +40,7 @@ if (my @updates = $store->make_all_tables_sql(@INC_PATH)) {
         }
         $store->commit_transaction;
     } else {
-        print "no updates applied\n";
+        print "cancelled - no updates applied\n";
     }
 } else {
     print "no updates needed\n";
