@@ -191,6 +191,7 @@ sub new_obj($*@) {
 
     my $package_file = $pkg;
     $package_file =~ s/::/\//g;
+
     require "$package_file.pm";
 
     if (!_package_is_baseobj($pkg)) {
@@ -240,20 +241,21 @@ sub new_obj($*@) {
 
 sub _new_thing {
     my ($self, $type, @args) = @_;
-    if ($type =~ /^\*ARRAY_/) {
+    if ($type =~ /^\*?ARRAY_/) {
         return $self->new_array( $type, @args );
     }
-    elsif ($type =~ /^\*HASH<\d+>_/) {
+    elsif ($type =~ /^\*?HASH<\d+>_/) {
         return $self->new_hash( $type, @args );
     }
     my ($pkg) = ( $type =~ /^\*?(.*)/);
+
     return $self->new_obj( $pkg, @args );
 }
 
 sub new_hash {
     my ($self, $type, %args) = @_;
 
-    my ($value_type) = ($type =~ /^\*HASH<\d+>_(.*)/);
+    my ($value_type) = ($type =~ /^\*?HASH<\d+>_(.*)/);
 
     die "Cannot create hash of type '$type'" unless $value_type;
 
@@ -292,7 +294,7 @@ sub _yoteobj {
 sub new_array {
     my ($self, $type, @vals) = @_;
 
-    my ($value_type) = ($type =~ /^\*ARRAY_(.*)/);
+    my ($value_type) = ($type =~ /^\*?ARRAY_(.*)/);
 
     die "Cannot create array of type '$type'" unless $value_type;
 
@@ -530,15 +532,21 @@ sub fetch_path {
 sub ensure_paths {
     my ($self, @paths) = @_;
     $self->start_transaction();
+    $self->{temp_refs} = {};
     my $endpoint;
     eval {
         for my $path (@paths) {
-            $endpoint = $self->_ensure_path( @$path );
+            print STDERR "ENSURE $path\n";
+            $endpoint = $self->_ensure_path( ref $path ? @$path : $path );
         }
     };
-    if ($@) {
+    if (my $err = $@) {
+        for my $id (keys %{$self->{temp_refs}}) {
+            delete $self->{DIRTY}{$id};
+            delete $self->{WEAK}{$id};
+        }
         $self->rollback_transaction();
-        die $@;
+        die $err;
     }
     $self->commit_transaction();
     return $endpoint;
@@ -548,12 +556,17 @@ sub ensure_path {
     my ($self, @path) = @_;
     $self->start_transaction();
     my $endpoint;
+    $self->{temp_refs} = {};
     eval {
         $endpoint = $self->_ensure_path( @path );
     };
-    if ($@) {
+    if (my $err = $@) {
+        for my $id (keys %{$self->{temp_refs}}) {
+            delete $self->{DIRTY}{$id};
+            delete $self->{WEAK}{$id};
+        }
         $self->rollback_transaction();
-        die $@;
+        die $err;
     }
     $self->commit_transaction();
     return $endpoint;
@@ -584,11 +597,11 @@ sub _convert_string_path {
 # where 'index' is for arrays and 'key' is for hashes
 sub _ensure_path {
     my ($self, @path) = @_;
-
+print STDERR Data::Dumper->Dump([\@path,"PATH 1"]);
     if (@path == 1 && !ref $path[0]) {
         @path = _convert_string_path( $path[0] );
     }
-
+print STDERR Data::Dumper->Dump([\@path,"PATH 2"]);
     # always starts from root
     my $current_ref = $self->fetch_root; 
     my $from_id = $self->root_id;
@@ -596,23 +609,23 @@ sub _ensure_path {
     while (my $segment = shift @path) {
         my ($key, $cls_or_val) = ref $segment ? @$segment : $segment;
 
-        die "invalid path: missing key" if ! defined $key;
+        die "invalid path. missing key" if ! $key;
 
         my ($ref_id, $val, $expected_value_type) = $self->_fetch_refid_or_val( $from_id, $key );
-
+print STDERR Data::Dumper->Dump(["key $key, cls_or_val $cls_or_val, refid $ref_id, val $val, evt $expected_value_type"]);
         if (! $expected_value_type) { # not a reference
-            if (!defined $cls_or_val) {
-                die "invalid path. last path component needs value";
-            }
             die "invalid path. non-reference encountered before the end" if @path;
-            if (defined $val) {
+            if (defined $cls_or_val and defined $val) {
                 die "path ends in different value" if $val ne $cls_or_val;
-            } else {
-                my $curr_obj = _yoteobj( $current_ref );
+            } 
+
+            my $curr_obj = _yoteobj( $current_ref );
+            if (defined $cls_or_val) {
+                $self->{temp_refs}{$curr_obj->id} = 1;
                 $curr_obj->set( $key, $cls_or_val );
+                return $cls_or_val;
             }
-            
-            return $cls_or_val;
+            return $curr_obj->get( $key );
         }
 
         #
@@ -622,6 +635,9 @@ sub _ensure_path {
         if ($ref_id) {
             $from_id = $ref_id;
             $current_ref = $self->fetch( $ref_id );
+            if (defined $cls_or_val and $cls_or_val ne ref $current_ref) {
+                die "path exists but got type '".ref($current_ref)."' and expected '$cls_or_val'";
+            }
             next;
         }
 
@@ -633,24 +649,15 @@ sub _ensure_path {
         #
         my $curr_obj = _yoteobj( $current_ref );
 
-        my $is_hash  = $curr_obj->isa('Yote::SQLObjectStore::TiedHash');
-        my $is_array = (! $is_hash) && $curr_obj->isa('Yote::SQLObjectStore::TiedArray');
-
-        if ($is_array && $key !~ /^[0-9]+$/) {
-            die "invalid path, array access expects index, got '$key'";
-        }
-        if ($is_hash && length( $key ) > $curr_obj->key_size) {
-            die "invalid path, key '$key' too large";
-        }
-
         $cls_or_val //= $expected_value_type;
 
         if ($cls_or_val eq '*') {
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,"EVT $expected_value_type"]);
             die "invalid path. wildcard slot requires an object type be given when placing into that slot";
         }
 
         if ($expected_value_type ne '*' and $cls_or_val ne $expected_value_type) {
-            die "invalid path. incorrect class '$cls_or_val' at this point";
+            die "invalid path. incorrect type '$cls_or_val', expected '$expected_value_type'";
         }
 
         my $new_value;
@@ -668,15 +675,9 @@ sub _ensure_path {
         #
         # install the new thing at the path reference
         #
-        if ($is_array) {
-            $current_ref->[$key] = $new_value;
-        }
-        elsif ($is_hash) {
-            $current_ref->{$key} = $new_value;
-        }
-        else {
-            $current_ref->set( $key, $new_value );
-        }
+        $curr_obj->set( $key, $new_value );
+        $self->{temp_refs}{$curr_obj->id} = 1;        
+
         $current_ref = $new_value;
     }
     return $current_ref;
@@ -835,6 +836,7 @@ sub commit_transaction {
 sub rollback_transaction {
     my $self = shift;
     return unless $self->{in_transaction};
+
     $self->_rollback_transaction;
     $self->{in_transaction} = 0;
 }

@@ -31,7 +31,7 @@ sub new {
 
 sub connect_sql {
     my ($pkg,%args) = @_;
-    
+
     my $dbh = DBI->connect( "DBI:MariaDB".($args{dbname} ? ":dbname=$args{dbname}" : ""),
                             $args{username},
                             $args{password},
@@ -55,7 +55,8 @@ sub has_table {
 }
 
 sub _start_transaction {
-    shift->query_line( "START TRANSACTION" );
+    my $self = shift;
+    $self->query_line( "START TRANSACTION" );
 }
 sub _commit_transaction {
     shift->query_line( "COMMIT" );

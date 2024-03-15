@@ -62,13 +62,19 @@ sub has_table {
 
 
 sub _start_transaction {
-    shift->query_line( "BEGIN TRANSACTION" );
+    my $self = shift;
+#    $self->query_line( "BEGIN TRANSACTION" );
+    $self->query_line( "SAVEPOINT SP$$" );
 }
 sub _commit_transaction {
-    shift->query_line( "COMMIT TRANSACTION" );
+    my $self = shift;
+    $self->query_line( "RELEASE SP$$" );
+#    $self->query_line( "COMMIT TRANSACTION" );
 }
 sub _rollback_transaction {
-    shift->query_line( "ROLLBACK TRANSACTION" );
+    my $self = shift;
+    #    $self->query_line( "ROLLBACK TRANSACTION" );
+    $self->query_line( "ROLLBACK TRANSACTION TO SP$$" );
 }
 
 1;

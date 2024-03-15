@@ -512,9 +512,174 @@ subtest 'reference and reopen test' => sub {
 
 };
 
+subtest 'paths test' => sub {
+
+    my $db_handle = $factory->new_db_handle;
+
+    {
+        my $object_store = Yote::SQLObjectStore->new( 'MariaDB', 
+            dbname => $db_handle,
+            %args,
+            );
+
+        make_all_tables( $object_store );
+        $object_store->open;
+
+        is ( $object_store->fetch_path( '/val_hash/word' ), undef, 'nothing yet in val_hash' );
+
+        is ( ref $object_store->ensure_path( [ 'val_hash' ] ), 'HASH', 'starts with hash' );
+
+        throws_ok
+            { $object_store->ensure_path( 'val_hash',
+                                          [],
+                                          [ 'word', 'VARCHAR(256)' ],
+                  ) }
+            qr/invalid path. missing key/,
+            'ensure_path throws when a key is missing';
+
+        throws_ok
+            { $object_store->ensure_path( 'val_hash',
+                                          [ 'word', 'VARCHAR(256)' ],
+                                          'beep'  ) }
+            qr/invalid path. non-reference encountered before the end/,
+            'ensure_path throws when there is a non-reference in the middle of the path';
+
+        is ($object_store->fetch_path( '/val_hash/word' ), undef, 'check that bird is not yetthe word' );
+
+        is ($object_store->ensure_path( 'val_hash',
+                                        [ 'word', 'bird' ]
+            ), 'bird', 'ensure bird is the word' );
+
+        is ($object_store->fetch_path( '/val_hash/word' ), 'bird', 'check that bird is the word' );
+
+        is ($object_store->fetch_path( '/ref_hash/plugh' ), undef, 'ref hash has no plugh' );
+
+        throws_ok
+            { $object_store->ensure_path( qw( ref_hash plugh )) }
+            qr/requires an object type be given/, 'plugh type not defined';
+
+        throws_ok
+            { $object_store->ensure_path( 'ref_hash',
+                                          [ 'plugh', 'MariaDB::NotInINC' ] );
+            }
+            qr/invalid path.*not found in/,
+            'plugh cant be set to something not found in @INC';
+
+        throws_ok
+            { $object_store->ensure_path( 'ref_hash',
+                                          [ 'plugh', 'MariaDB::NotAThing' ] );
+            }
+            qr/.*is not a Yote::SQLObjectStore::BaseObj/,
+            'plugh cant be set to something not a yote obj';
+
+
+        my $something = $object_store->ensure_path( 'ref_hash',
+                                                    [ 'plugh', 'MariaDB::SomeThing' ] );
+        ok ($something, 'ensure path returns something' );
+
+        $something = $object_store->ensure_path( '/ref_hash/plugh|MariaDB::SomeThing' );
+        ok ($something, 'ensure path returns something' );
+
+        throws_ok
+        { $something = $object_store->ensure_path( '/ref_hash/plugh|MariaDB::SomeThingElse' );
+        }
+        qr/path exists but got type 'MariaDB::SomeThing' and expected 'MariaDB::SomeThingElse'/,
+            'ensure path contains an object whos expected class differs';
+
+        throws_ok
+        { $object_store->ensure_path( '/val_hash/word|notBird' ); }
+        qr/path ends in different value/,
+            'ensure path contains a value that differs from the expected value';
+
+        is ($object_store->ensure_path( '/val_hash/word' ), 'bird', 'ensure returns last value as long as its present');
+        is ($object_store->ensure_path( '/val_hash/word|bird' ), 'bird', 'ensure returns last value if last value exists');
+
+        my $val_array = $object_store->ensure_path( '/ref_hash/array|*ARRAY_VARCHAR(256)' );
+        ok (ref $val_array eq 'ARRAY', 'created value array' );
+
+        throws_ok
+        { $object_store->ensure_path( '/ref_hash/array/notanindex|nope' ); }
+        qr/array access expects index/,
+            'should throw when a non numeric index is used in array';
+
+        $val_array->[0] = "THE FIRST";
+        is ($object_store->fetch_path( '/ref_hash/array/0' ), 'THE FIRST', 'fetched value from array' );
+
+        throws_ok
+        { $object_store->ensure_path( '/ref_hash/wildcard|*' ); }
+        qr/invalid path. wildcard slot requires an object type be given/,
+            'should throw when given a wildcard type to instantiate';
+        
+
+        my $tiny_hash = $object_store->ensure_path( '/ref_hash/tinyhash|*HASH<3>_VARCHAR(256)' );
+        is (ref $tiny_hash, 'HASH', 'made a tiny hash' );
+        
+        is ($object_store->ensure_path( '/ref_hash/tinyhash/foo|BAR' ), 'BAR', 'made a tiny entry' );
+
+        throws_ok
+        { $object_store->ensure_path( '/ref_hash/tinyhash/fooLong|NOWAY' ); }
+        qr/key is too large for hash/,
+            'should throw when key length exceeds max';
+
+        throws_ok
+        { $object_store->ensure_path( '/ref_hash/tinyhash2|*HASH<3>_VARCHAR(256)/fooLonger|STILLNOWAY' ); }
+        qr/key is too large/,
+            'should throw when key length exceeds max';
+
+
+        $object_store->ensure_path( '/ref_hash/someobjagain|*MariaDB::SomeThing' );
+        
+
+        $object_store->ensure_path( '/ref_hash/somethingHash|*HASH<256>_*MariaDB::SomeThing' );
+
+        my $thing = $object_store->ensure_path( '/ref_hash/somethingHash/afirst|*MariaDB::SomeThing' );
+        is (ref $thing, 'MariaDB::SomeThing', 'made something obj' );
+
+        throws_ok
+        { $something = $object_store->ensure_path( '/ref_hash/somethingHash/nothere|*MariaDB::SomeThingElse' );
+        }
+        qr/invalid path. incorrect type '\*MariaDB::SomeThingElse', expected '\*MariaDB::SomeThing'/,
+            'type checked hash throws when wrong type added to it';
+        
+
+        $object_store->ensure_paths( qw( 
+                                         /ref_hash/tinyhash/fuu|BUR
+                                         /ref_hash/tinyhash/boo|FAR
+                                     ) );
+        is ( $object_store->fetch_path( '/ref_hash/tinyhash/boo' ), 'FAR', 'ensure paths worked 1' );
+        is ( $object_store->fetch_path( '/ref_hash/tinyhash/fuu' ), 'BUR', 'ensure paths worked 2' );
+
+        eval {
+$object_store->ensure_paths( qw( 
+                                         /ref_hash/tinyhash/fu1|GLACK
+                                         /ref_hash/tinyhash/bo1|NOOOO
+                                         /ref_hash/tinyhash/noway|FAR/gah
+                                     ) );
+        };
+
+print STDERR Data::Dumper->Dump([$@,"BEEPY"]);
+print STDERR Data::Dumper->Dump([$object_store->fetch_path( '/ref_hash/tinyhash/fu1' ),"UM"]);
+
+        throws_ok
+        { $something = $object_store->ensure_paths( qw( 
+                                         /ref_hash/tinyhash/fu1|GLACK
+                                         /ref_hash/tinyhash/bo1|NOOOO
+                                         /ref_hash/tinyhash/noway|FAR/gah
+                                     ) )
+        }
+        qr/invalid path. non-reference encountered before the end/,
+            'ensure_paths fail for transaction check';
+        
+        is ( $object_store->fetch_path( '/ref_hash/tinyhash/fu1' ), undef, 'bath paths did nothing 1' );
+        is ( $object_store->fetch_path( '/ref_hash/tinyhash/bo1' ), undef, 'bath paths did nothing 2' );
+        
+    }
+};
+
+
 done_testing;
 
-#$factory->teardown;
+$factory->teardown;
 exit;
 
 package Factory;

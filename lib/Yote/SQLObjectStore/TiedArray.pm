@@ -114,6 +114,9 @@ sub set {
 
 sub FETCH {
     my( $self, $idx ) = @_;
+    if ($idx !~ /^[0-9]+$/) {
+        die "array access expects index";
+    }
     $self->{store}->xform_out( $self->{data}[$idx], $self->{value_type} );
 } #FETCH
 

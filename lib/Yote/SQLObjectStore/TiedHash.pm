@@ -144,6 +144,10 @@ sub FETCH {
 sub STORE {
     my( $self, $key, $val ) = @_;
 
+    if (length($key) > $self->{key_size}) {
+        die "key is too large for hash. given length of ".length($key)." and max is $self->{key_size}";
+    }
+
     my $data = $self->{data};
     my $inval = $self->{store}->xform_in( $val, $self->{value_type} );
     no warnings 'uninitialized';
