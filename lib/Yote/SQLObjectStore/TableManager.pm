@@ -13,6 +13,10 @@ sub new {
     return bless { store => $store }, $pkg;
 }
 
+sub store {
+    shift->{store};
+}
+
 sub walk_for_perl {
     my ($self, $base_obj_pkg, $seen_packages, $root, @path) = @_;
 
@@ -286,7 +290,7 @@ sub capture_versions {
 sub tables_sql_updates {
     my ($self, $name2table) = @_;
 
-    my $store = $self->{store};
+    my $store = $self->store;
 
     my @sql;
     for my $table_name (keys %$name2table) {
@@ -300,37 +304,32 @@ sub tables_sql_updates {
             #
             # if the table exists check if it needs an update
             #
-            my $sth = $store->query_do( "DESC $table_name" );
-            
+            my @olds = $self->abridged_columns_for_table( $table_name );
+
             #table exists, otherwise query_do would have failed
             $needs_new_table = 0;
 
             my $old_columns = Set::Scalar->new;
             my %old_columns;
-            while (my $row = $sth->fetchrow_arrayref) {
-                my ($name, $def) = map { lc } @$row;
-                next if $name eq 'id';
-                $def =~ s/int\(\d+\)/int/;
+            for my $pair (@olds) {
+                my ($name, $def) = @$pair;
                 $old_columns{$name} = $def;
                 $old_columns->insert( "$name $def" );
             }
 
             # extract and compare the columns
-            my ($new_columns_defs) = ($create =~ /^[^(]*\((.*?)(,unique +\([^\)]+\))?\)$/i);
+            my @news = $self->abridged_columns_from_create_string( $create );
 
             my $new_columns = Set::Scalar->new;
             my %new_columns;
-            for my $col (split ',', lc($new_columns_defs)) {
-                my ($name, $def) = split /\s+/, $col, 2;
-                next if $name eq 'id';
-                $def =~ s/int\(\d+\)/int/;
+            for my $col (@news) {
+                my ($name, $def) = @$col;
                 $new_columns{$name} = $def;
-                $new_columns->insert( $col );
+                $new_columns->insert( "$name $def" );
             }
 
             my $signatures_uniq_to_new = $new_columns->difference($old_columns);
             my $signatures_uniq_to_old = $old_columns->difference($new_columns);
-
             my %seen;
             for my $col (@$signatures_uniq_to_new) {
                 # columns to add or change

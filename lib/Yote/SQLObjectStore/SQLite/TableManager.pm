@@ -28,6 +28,12 @@ sub archive_column {
     "ALTER TABLE $table_name RENAME COLUMN $column_name TO ${column_name}_DELETED",
 }
 
+sub undecorate_column {
+    my ($self, $coldef) = @_;
+    return $coldef;
+}
+
+
 sub create_object_index_sql {
     return <<"END";
 CREATE TABLE IF NOT EXISTS ObjectIndex ( 
