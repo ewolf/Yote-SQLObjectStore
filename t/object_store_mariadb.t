@@ -585,7 +585,7 @@ subtest 'paths test' => sub {
         throws_ok
         { $something = $object_store->ensure_path( '/ref_hash/plugh|MariaDB::SomeThingElse' );
         }
-        qr/path exists but got type 'MariaDB::SomeThing' and expected 'MariaDB::SomeThingElse'/,
+        qr/path exists but got type 'MariaDB::SomeThingElse' and expected type 'MariaDB::SomeThing'/,
             'ensure path contains an object whos expected class differs';
 
         throws_ok
@@ -668,6 +668,12 @@ subtest 'paths test' => sub {
         is ( $object_store->fetch_string_path( '/ref_hash/tinyhash/fu1' ), undef, 'bath paths did nothing 1' );
         is ( $object_store->fetch_string_path( '/ref_hash/tinyhash/bo1' ), undef, 'bath paths did nothing 2' );
         
+        $thing = $object_store->set_path( 'ref_hash', 'setting', $object_store->new_obj( 'MariaDB::SomeThing', name => 'gwerv' ) );
+        is ( $object_store->fetch_string_path( '/ref_hash/setting/name' ), 'gwerv', 'set hash name value' );
+    my $x = $object_store->fetch_string_path( '/ref_hash/setting' );
+    is (ref $x, 'MariaDB::SomeThing', 'correct ref of thing' );
+    is ($x->id, $thing->id, "GOT THE THING" );
+
     }
 };
 

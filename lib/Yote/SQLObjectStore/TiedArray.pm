@@ -127,6 +127,7 @@ sub FETCHSIZE {
 sub STORE {
     my( $self, $idx, $val ) = @_;
     my $inval = $self->{store}->xform_in( $val, $self->{value_type} );
+    no warnings 'uninitialized';
     if ($inval ne $self->{data}[$idx]) {
         $self->_dirty;
         $self->{data}[$idx] = $inval;

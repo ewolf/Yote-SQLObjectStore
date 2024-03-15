@@ -267,12 +267,17 @@ sub generate_tables_sql {
         $self->generate_table_from_module( $name2table, $mod );
     }
 
-    # now we have table definitions and sql
+    #
+    # the following sql is always run. its a bit bootstrappy
+    #
     my @sql = (
         [$self->create_object_index_sql],
         [$self->create_table_defs_sql],
         [$self->create_table_versions_sql],
         );
+    # $name2table->{ObjectIndex} = $self->create_object_index_sql;
+    # $name2table->{TableDefs} = $self->create_table_defs_sql;
+    # $name2table->{TableVersions} = $self->create_table_versions_sql;
     push @sql, $self->tables_sql_updates( $name2table );
 
     @sql;

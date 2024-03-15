@@ -8,13 +8,15 @@ no warnings 'uninitialized';
 use Yote::SQLObjectStore::TiedArray;
 use Yote::SQLObjectStore::TiedHash;
 
-warn "Yote::Locker needs to be a service somewhere";
+#warn "Yote::Locker needs to be a service somewhere";
 use Yote::Locker;
 
 use Scalar::Util qw(weaken blessed);
 use Time::HiRes qw(time);
 
 use vars qw($VERSION);
+
+my $QUERY_DEBUG = 0;
 
 $VERSION = '2.06';
 
@@ -669,7 +671,7 @@ sub _ensure_path {
             $from_id = $ref_id;
             $current_ref = $self->fetch( $ref_id );
             if (defined $cls_or_val and $cls_or_val ne ref $current_ref) {
-                die "path exists but got type '".ref($current_ref)."' and expected '$cls_or_val'";
+                die "path exists but got type '$cls_or_val' and expected type '".ref($current_ref)."'";
             }
             next;
         }
@@ -714,6 +716,60 @@ sub _ensure_path {
     }
     return $current_ref;
 } #_ensure_path
+
+sub set_path {
+    my ($self, @path) = @_;
+    if (@path < 2) {
+        die "set_path. path '@path' not long enough to set";
+    }
+    $self->start_transaction();
+    my $endpoint;
+    $self->{temp_refs} = {};
+    eval {
+        $endpoint = $self->_set_path( @path );
+    };
+    if (my $err = $@) {
+        for my $id (keys %{$self->{temp_refs}}) {
+            delete $self->{DIRTY}{$id};
+            delete $self->{WEAK}{$id};
+        }
+        $self->rollback_transaction();
+        die $err;
+    }
+    $self->commit_transaction();
+    return $endpoint;
+}
+
+sub _set_path {
+    my ($self, @path ) = @_;
+    
+    my $set_value   =  pop @path;
+    my $insert_key  =  pop @path;
+
+    # always starts from root
+    my $current_ref  =   $self->fetch_root;
+    my $from_id      =   $self->root_id;
+
+    while (my $key = shift @path) {
+        my ($ref_id) = $self->_fetch_refid_or_val( $from_id, $key );
+
+        #
+        # key is there, then check if its an array element that is there.
+        # if there after the check, set the current from_id and loop again
+        #
+        die "encounterd non reference in path" unless $ref_id;
+        if ($ref_id) {
+            $from_id = $ref_id;
+            $current_ref = $self->fetch( $ref_id );
+            if (@path == 0 && $insert_key) {
+                my $curr_obj = _yoteobj( $current_ref );
+                $curr_obj->set( $insert_key, $set_value );
+                return $set_value;
+            }
+        }
+    }
+}
+
 
 =head2 is_dirty(obj)
 
@@ -795,6 +851,7 @@ sub sth {
 sub insert_get_id {
     my ($self, $query, @qparams ) = @_;
     my $dbh = $self->dbh;
+print STDERR "QUERY INS: $query [@qparams]\n" if $QUERY_DEBUG;
     my $sth = $self->sth( $query );
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
@@ -807,6 +864,7 @@ sub insert_get_id {
 sub query_do {
     my ($self, $query, @qparams ) = @_;
     my $dbh = $self->dbh;
+print STDERR "QUERY: $query [@qparams]\n" if $QUERY_DEBUG;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
 use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,$dbh->errstr,"NOWOO"]);
@@ -823,7 +881,7 @@ use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,
 sub query_line {
     my ($self, $query, @qparams ) = @_;
     my $sth = $self->sth( $query );
-
+print STDERR "QUERY LINE: $query [@qparams]\n" if $QUERY_DEBUG;
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
         die $sth->errstr;
@@ -835,6 +893,7 @@ sub query_line {
 sub print_query_output {
     my ($self, $query, @qparams ) = @_;
     my $sth = $self->sth( $query );
+print STDERR "QUERY PQO: $query [@qparams]\n" if $QUERY_DEBUG;
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
         die $sth->errstr;
@@ -843,6 +902,7 @@ sub print_query_output {
 
 sub apply_query_array {
     my ($self, $query, $qparams, $eachrow_fun ) = @_;
+print STDERR "QUERY AQA: $query [@$qparams]\n" if $QUERY_DEBUG;
     my $sth = $self->sth( $query );
     my $res = $sth->execute( @$qparams );
     if (!defined $res) {

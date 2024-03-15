@@ -12,6 +12,7 @@ sub new {
     my %args = @_;
     # in this case datatype is table
     my $obj = $pkg->SUPER::new( %args );
+
     if ($obj->has_first_save) {
         $obj->_load;
     } else {

@@ -26,6 +26,8 @@ sub archive_column {
 sub undecorate_column {
     my ($self, $coldef) = @_;
     $coldef =~ s/int\(\d+\)/int/i;
+    $coldef =~ s/ DEFAULT.*//i;
+    $coldef =~ s/ on update.*//i;
     return $coldef;
 }
 
@@ -35,7 +37,7 @@ sub abridged_columns_for_table {
 
     my @col_pairs;
     while (my $row = $sth->fetchrow_arrayref) {
-        my ($name, $def) = map { lc } @$row;
+        my ($name, $def) = map { lc } grep { defined } @$row;
         next if $name eq 'id';
         $def = $self->undecorate_column( $def );
         push @col_pairs, [$name, $def];
