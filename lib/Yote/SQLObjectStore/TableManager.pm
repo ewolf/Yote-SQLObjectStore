@@ -344,12 +344,12 @@ sub tables_sql_updates {
                     # update the column. is a list. for example sqlite needs more than one sql commands
                     # to change a column
                     my @update_sql = $self->change_column( $table_name, $col_name, $col_def );
-                    push @sql, [@update_sql];
+                    push @sql, map { [$_] } @update_sql;
                 }
                 else {
                     #this column is new
                     my @new_sql = $self->new_column( $table_name, $col_name, $col_def );
-                    push @sql, [@new_sql];
+                    push @sql, map { [$_] }@new_sql;
                 }
             }
 
@@ -358,7 +358,7 @@ sub tables_sql_updates {
                 my ($col_name, $col_def) = split /\s+/, $col, 2;
                 next if $seen{$col_name};
                 my @new_sql = $self->archive_column( $table_name, $col_name, $col_def );
-                push @sql, [@new_sql];
+                push @sql, map { [$_] }@new_sql;
 
             }
         }
