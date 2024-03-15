@@ -936,8 +936,8 @@ use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,
 
 sub query_line {
     my ($self, $query, @qparams ) = @_;
+    print STDERR "QUERY LINE: $query [@qparams]\n" if $QUERY_DEBUG;
     my $sth = $self->sth( $query );
-print STDERR "QUERY LINE: $query [@qparams]\n" if $QUERY_DEBUG;
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
         die $sth->errstr;
