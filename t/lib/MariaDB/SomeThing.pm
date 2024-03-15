@@ -1,5 +1,8 @@
 package MariaDB::SomeThing;
 
+use strict;
+use warnings;
+
 use base 'Yote::SQLObjectStore::MariaDB::Obj';
 
 our %cols = (

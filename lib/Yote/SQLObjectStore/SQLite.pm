@@ -27,7 +27,7 @@ sub insert_or_ignore {
 
 sub new {
     my ($pkg, %args ) = @_;
-    $args{root} //= 'Yote::SQLObjectStore::SQLite::Root';
+    $args{root_package} //= 'Yote::SQLObjectStore::SQLite::Root';
 
     return $pkg->SUPER::new( %args );
 }

@@ -24,7 +24,7 @@ sub sqlstr {
 }
 
 my %args = (
-    username => 'wolf',
+    username => 'webapp',
     password => 'boogers',
     host     => 'localhost',
     port     => 3306,
@@ -51,7 +51,7 @@ if(0){
 sub make_all_tables {
     my $object_store = shift;
     local @INC = qw( ./lib ./t/lib );
-    $object_store->make_all_tables;
+    $object_store->make_all_tables( @INC );
     
 }
 
@@ -146,9 +146,9 @@ subtest 'reference and reopen test' => sub {
         $object_store->open;
 
 
-        is ($object_store->fetch_path( "/val_hash/foo" ), 'bar', 'fetched value' );
-        is ($object_store->fetch_path( "/val_hash/bar" ), 'gaz', 'fetched value' );
-        is_deeply ($object_store->fetch_path( "/ref_hash/val_array" ), [1,2,3], 'fetched array ref' );
+        is ($object_store->fetch_string_path( "/val_hash/foo" ), 'bar', 'fetched value' );
+        is ($object_store->fetch_string_path( "/val_hash/bar" ), 'gaz', 'fetched value' );
+        is_deeply ($object_store->fetch_string_path( "/ref_hash/val_array" ), [1,2,3], 'fetched array ref' );
 
 
         my $root = $object_store->fetch_root;
@@ -171,14 +171,14 @@ subtest 'reference and reopen test' => sub {
 
         ok ($object_store->has_id($root_refs), 'hash has an id');
 
-        is ($object_store->fetch_path( "/ref_hash/ref_array" ), $root_refs->{ref_array}, 'fetched path containing array' );
-        is ($object_store->fetch_path( "/ref_hash/ref_array/2" ), $brad, 'fetched path containing array' );
-        is ($object_store->fetch_path( "/ref_hash/ref_array/2/sister" ), $wilma, 'fetched path containing array and reference' );
-        is ($object_store->fetch_path( "/ref_hash/ref_array/2/name" ), 'brad', 'fetched path containing array and value' );
+        is ($object_store->fetch_string_path( "/ref_hash/ref_array" ), $root_refs->{ref_array}, 'fetched path containing array' );
+        is ($object_store->fetch_string_path( "/ref_hash/ref_array/2" ), $brad, 'fetched path containing array' );
+        is ($object_store->fetch_string_path( "/ref_hash/ref_array/2/sister" ), $wilma, 'fetched path containing array and reference' );
+        is ($object_store->fetch_string_path( "/ref_hash/ref_array/2/name" ), 'brad', 'fetched path containing array and value' );
         $brad->set_name( 'new brad' );
         is ($brad->get_name, 'new brad', 'brad new name' );
 
-        my $mth = $object_store->fetch_path( "/ref_hash/empty_hash" );
+        my $mth = $object_store->fetch_string_path( "/ref_hash/empty_hash" );
         my $mtth = $mth;
         is_deeply ($mtth, {}, 'fetched path containing empty hash' );
         $mth->{NOTEMPTY} = 'anymore';
@@ -239,17 +239,17 @@ subtest 'reference and reopen test' => sub {
         $root_refs->{ref_hash}{wilma} = $wilma;
 
 
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3" ), $bad, 'fetched path containing bad guy' );
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3/name" ), 'bad', 'fetched path containing bad guy name' );
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3/some_ref_hash" ), {}, 'fetched path containing hash ref in obj' );
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3/some_val_array" ), [], 'fetched path containing array ref in obj' );
+        is_deeply( $object_store->fetch_string_path( "/ref_hash/ref_array/3" ), $bad, 'fetched path containing bad guy' );
+        is_deeply( $object_store->fetch_string_path( "/ref_hash/ref_array/3/name" ), 'bad', 'fetched path containing bad guy name' );
+        is_deeply( $object_store->fetch_string_path( "/ref_hash/ref_array/3/some_ref_hash" ), {}, 'fetched path containing hash ref in obj' );
+        is_deeply( $object_store->fetch_string_path( "/ref_hash/ref_array/3/some_val_array" ), [], 'fetched path containing array ref in obj' );
         is_deeply( $bad_val_hash, { LEEROY => 'brown' }, 'bad val hash' );
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3/some_val_hash" ), { LEEROY => 'brown' }, 'fetched path containing value hash' );
-        is( $object_store->fetch_path( "/ref_hash/ref_array/3/some_val_array/1" ), undef, 'fetched path to non extant index in array' );
+        is_deeply( $object_store->fetch_string_path( "/ref_hash/ref_array/3/some_val_hash" ), { LEEROY => 'brown' }, 'fetched path containing value hash' );
+        is( $object_store->fetch_string_path( "/ref_hash/ref_array/3/some_val_array/1" ), undef, 'fetched path to non extant index in array' );
 
-        is ($object_store->fetch_path( "/ref_hash/ref_array/3/some_ref_hash/nothere" ), undef, 'nothing to see here is undef' );
+        is ($object_store->fetch_string_path( "/ref_hash/ref_array/3/some_ref_hash/nothere" ), undef, 'nothing to see here is undef' );
 
-        is ($object_store->fetch_path( "/ref_hash/ref_array/4" ), undef, 'last entry in ref array is undef' );
+        is ($object_store->fetch_string_path( "/ref_hash/ref_array/4" ), undef, 'last entry in ref array is undef' );
 
         $object_store->save;
 
@@ -393,8 +393,8 @@ subtest 'reference and reopen test' => sub {
             );
         $object_store->open;
 
-        my $bad = $object_store->fetch_path( "/ref_hash/ref_array/3" );
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3/some_val_array/100" ), "ONEHUND", 'fetched path containing indexes array value' );
+        my $bad = $object_store->fetch_string_path( "/ref_hash/ref_array/3" );
+        is_deeply( $object_store->fetch_string_path( "/ref_hash/ref_array/3/some_val_array/100" ), "ONEHUND", 'fetched path containing indexes array value' );
 
         my $bad_val_hash_obj = $bad->get_some_val_array;
         
@@ -409,7 +409,7 @@ subtest 'reference and reopen test' => sub {
         is ($undef, undef, 'shifted undef value');
         is (@$bad_val_array, 100, '100 entries for bad val array after shift' );
 
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3/some_val_array/99" ), "ONEHUND", 'fetched path containing indexes array value shifted down one' );
+        is_deeply( $object_store->fetch_string_path( "/ref_hash/ref_array/3/some_val_array/99" ), "ONEHUND", 'fetched path containing indexes array value shifted down one' );
         is ($#$bad_val_array, 99, 'last index 99 for bad val array');
         is ($bad_val_array->[$#$bad_val_array], 'ONEHUND', 'at last');
         is (pop @$bad_val_array, 'ONEHUND', 'ONEHUND POPPED OFF');
@@ -417,7 +417,7 @@ subtest 'reference and reopen test' => sub {
         is ($bad_val_array->[$#$bad_val_array], undef, 'last bad val array entry undef now');
 
         unshift @$bad_val_array, 'BEGINNING';
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array/3/some_val_array/0" ), "BEGINNING", 'NOW UNSHIFTED bad val array value' );
+        is_deeply( $object_store->fetch_string_path( "/ref_hash/ref_array/3/some_val_array/0" ), "BEGINNING", 'NOW UNSHIFTED bad val array value' );
         is (@$bad_val_array, 100, 'bad val array now at 100 size after unshift' );
 
         $object_store->save;
@@ -426,7 +426,7 @@ subtest 'reference and reopen test' => sub {
         unshift @$bad_val_array;
         ok (!$object_store->is_dirty( $bad_val_hash_obj ), 'bad val array now not dirty after useless unshift' );
 
-        my $val_array = $object_store->fetch_path( "/ref_hash/val_array" );
+        my $val_array = $object_store->fetch_string_path( "/ref_hash/val_array" );
         is_deeply ($val_array, [1,2,3], 'val array from fetch path' );
         my (@gone) = splice @$val_array, 1, 1, 'two';
         is_deeply( \@gone, [2], 'spliced away the 2' );
@@ -456,19 +456,20 @@ subtest 'reference and reopen test' => sub {
         my $sth = $dbh->prepare( "SHOW CREATE TABLE SomeThing" );
         $sth->execute;
         my $sql = $sth->fetchall_arrayref->[0][1];
+        $sql =~ s/int\(\d+\)/int/gis;
         ok ( 0 == index( $sql, 'CREATE TABLE `SomeThing` (
-  `id` bigint(20) unsigned NOT NULL,
-  `brother` bigint(20) unsigned DEFAULT NULL,
-  `lolov` bigint(20) unsigned DEFAULT NULL,
+  `id` bigint unsigned NOT NULL,
+  `brother` bigint unsigned DEFAULT NULL,
+  `lolov` bigint unsigned DEFAULT NULL,
   `name` varchar(100) DEFAULT NULL,
-  `sister` bigint(20) unsigned DEFAULT NULL,
-  `sisters` bigint(20) unsigned DEFAULT NULL,
-  `sisters_hash` bigint(20) unsigned DEFAULT NULL,
-  `some_ref_array` bigint(20) unsigned DEFAULT NULL,
-  `some_ref_hash` bigint(20) unsigned DEFAULT NULL,
-  `some_val_array` bigint(20) unsigned DEFAULT NULL,
-  `some_val_hash` bigint(20) unsigned DEFAULT NULL,
-  `something` bigint(20) unsigned DEFAULT NULL,
+  `sister` bigint unsigned DEFAULT NULL,
+  `sisters` bigint unsigned DEFAULT NULL,
+  `sisters_hash` bigint unsigned DEFAULT NULL,
+  `some_ref_array` bigint unsigned DEFAULT NULL,
+  `some_ref_hash` bigint unsigned DEFAULT NULL,
+  `some_val_array` bigint unsigned DEFAULT NULL,
+  `some_val_hash` bigint unsigned DEFAULT NULL,
+  `something` bigint unsigned DEFAULT NULL,
   `tagline` varchar(200) DEFAULT NULL,
   PRIMARY KEY (`id`)
 )'), 'sql for something table' );
@@ -491,19 +492,20 @@ subtest 'reference and reopen test' => sub {
         my $sth = $dbh->prepare( "SHOW CREATE TABLE SomeThing" );
         $sth->execute;
         my $sql = $sth->fetchall_arrayref->[0][1];
+        $sql =~ s/int\(\d+\)/int/gis;
         ok ( 0 == index( $sql, 'CREATE TABLE `SomeThing` (
-  `id` bigint(20) unsigned NOT NULL,
-  `brother_DELETED` bigint(20) unsigned DEFAULT NULL,
-  `lolov` bigint(20) unsigned DEFAULT NULL,
+  `id` bigint unsigned NOT NULL,
+  `brother_DELETED` bigint unsigned DEFAULT NULL,
+  `lolov` bigint unsigned DEFAULT NULL,
   `name` varchar(100) DEFAULT NULL,
-  `sister` bigint(20) unsigned DEFAULT NULL,
-  `sisters` bigint(20) unsigned DEFAULT NULL,
-  `sisters_hash` bigint(20) unsigned DEFAULT NULL,
-  `some_ref_array` bigint(20) unsigned DEFAULT NULL,
-  `some_ref_hash` bigint(20) unsigned DEFAULT NULL,
-  `some_val_array` bigint(20) unsigned DEFAULT NULL,
-  `some_val_hash` bigint(20) unsigned DEFAULT NULL,
-  `something` bigint(20) unsigned DEFAULT NULL,
+  `sister` bigint unsigned DEFAULT NULL,
+  `sisters` bigint unsigned DEFAULT NULL,
+  `sisters_hash` bigint unsigned DEFAULT NULL,
+  `some_ref_array` bigint unsigned DEFAULT NULL,
+  `some_ref_hash` bigint unsigned DEFAULT NULL,
+  `some_val_array` bigint unsigned DEFAULT NULL,
+  `some_val_hash` bigint unsigned DEFAULT NULL,
+  `something` bigint unsigned DEFAULT NULL,
   `tagline` varchar(200) DEFAULT NULL,
   `newname` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
@@ -525,7 +527,7 @@ subtest 'paths test' => sub {
         make_all_tables( $object_store );
         $object_store->open;
 
-        is ( $object_store->fetch_path( '/val_hash/word' ), undef, 'nothing yet in val_hash' );
+        is ( $object_store->fetch_string_path( '/val_hash/word' ), undef, 'nothing yet in val_hash' );
 
         is ( ref $object_store->ensure_path( [ 'val_hash' ] ), 'HASH', 'starts with hash' );
 
@@ -544,15 +546,15 @@ subtest 'paths test' => sub {
             qr/invalid path. non-reference encountered before the end/,
             'ensure_path throws when there is a non-reference in the middle of the path';
 
-        is ($object_store->fetch_path( '/val_hash/word' ), undef, 'check that bird is not yetthe word' );
+        is ($object_store->fetch_string_path( '/val_hash/word' ), undef, 'check that bird is not yetthe word' );
 
         is ($object_store->ensure_path( 'val_hash',
                                         [ 'word', 'bird' ]
             ), 'bird', 'ensure bird is the word' );
 
-        is ($object_store->fetch_path( '/val_hash/word' ), 'bird', 'check that bird is the word' );
+        is ($object_store->fetch_string_path( '/val_hash/word' ), 'bird', 'check that bird is the word' );
 
-        is ($object_store->fetch_path( '/ref_hash/plugh' ), undef, 'ref hash has no plugh' );
+        is ($object_store->fetch_string_path( '/ref_hash/plugh' ), undef, 'ref hash has no plugh' );
 
         throws_ok
             { $object_store->ensure_path( qw( ref_hash plugh )) }
@@ -603,7 +605,7 @@ subtest 'paths test' => sub {
             'should throw when a non numeric index is used in array';
 
         $val_array->[0] = "THE FIRST";
-        is ($object_store->fetch_path( '/ref_hash/array/0' ), 'THE FIRST', 'fetched value from array' );
+        is ($object_store->fetch_string_path( '/ref_hash/array/0' ), 'THE FIRST', 'fetched value from array' );
 
         throws_ok
         { $object_store->ensure_path( '/ref_hash/wildcard|*' ); }
@@ -650,8 +652,8 @@ subtest 'paths test' => sub {
                                          /ref_hash/tinyhash/fuu|BUR
                                          /ref_hash/tinyhash/boo|FAR
                                         ) );
-        is ( $object_store->fetch_path( '/ref_hash/tinyhash/boo' ), 'FAR', 'ensure paths worked 1' );
-        is ( $object_store->fetch_path( '/ref_hash/tinyhash/fuu' ), 'BUR', 'ensure paths worked 2' );
+        is ( $object_store->fetch_string_path( '/ref_hash/tinyhash/boo' ), 'FAR', 'ensure paths worked 1' );
+        is ( $object_store->fetch_string_path( '/ref_hash/tinyhash/fuu' ), 'BUR', 'ensure paths worked 2' );
 
         throws_ok
         { $something = $object_store->ensure_paths( qw( 
@@ -663,8 +665,8 @@ subtest 'paths test' => sub {
         qr/invalid path. non-reference encountered before the end/,
             'ensure_paths fail for transaction check';
         
-        is ( $object_store->fetch_path( '/ref_hash/tinyhash/fu1' ), undef, 'bath paths did nothing 1' );
-        is ( $object_store->fetch_path( '/ref_hash/tinyhash/bo1' ), undef, 'bath paths did nothing 2' );
+        is ( $object_store->fetch_string_path( '/ref_hash/tinyhash/fu1' ), undef, 'bath paths did nothing 1' );
+        is ( $object_store->fetch_string_path( '/ref_hash/tinyhash/bo1' ), undef, 'bath paths did nothing 2' );
         
     }
 };

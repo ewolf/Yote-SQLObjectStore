@@ -80,7 +80,7 @@ sub new {
         DIRTY        => {},
         WEAK         => {},
         OPTIONS      => \%args,
-        ROOT_PACKAGE => $args{root},
+        ROOT_PACKAGE => $args{root_package},
         STATEMENTS   => {},
     }, $pkg;
 
@@ -140,6 +140,7 @@ sub needs_table_updates {
 sub make_all_tables {
     my ($self, @INC_PATH) = @_;
     my @sql = $self->make_all_tables_sql(@INC_PATH);
+#print STDERR Data::Dumper->Dump([\@sql,"MAT"]);
     $self->start_transaction;
     for my $s (@sql) {
         my ($query, @qparams) = @$s;
@@ -147,6 +148,9 @@ sub make_all_tables {
     }
     $self->commit_transaction;
 
+    #
+    # update the stored versions
+    #
 }
 
 sub make_all_tables_sql {
@@ -382,7 +386,8 @@ sub fetch_root {
     return $root if $root;
 
     $root = $self->new_obj( $self->{ROOT_PACKAGE} );
-
+    $self->save;
+    return $root;
 } #fetch_root
 
 
@@ -535,11 +540,27 @@ sub fetch_path {
         if ($ref_id) {
             $from_id = $ref_id;
         } else {
-            die "invalid path '$path', '$segment' is not a reference" if @path;
+            die "invalid path '".join('/',@path)."', '$segment' is not a reference" if @path;
             return $val;
         }
     }
     return $self->fetch( $from_id );
+}
+
+sub has_path {
+    my ($self, @path) = @_;
+
+    my $from_id = $self->root_id;
+    while (defined(my $segment = shift @path)) {
+        my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $segment );
+        if ($ref_id) {
+            $from_id = $ref_id;
+        } else {
+            return undef if @path;
+            return defined $val;
+        }
+    }
+    return defined $from_id;
 }
 
 sub ensure_paths {
@@ -796,8 +817,7 @@ use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,
 use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,$sth->errstr,"BADO"]);
         die $sth->errstr;
     }
-    my $id = $dbh->last_insert_id;
-    return $id;
+    return $sth;
 }
 
 sub query_line {

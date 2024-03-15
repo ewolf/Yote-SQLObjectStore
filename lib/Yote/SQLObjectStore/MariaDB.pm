@@ -25,7 +25,7 @@ sub insert_or_ignore {
 
 sub new {
     my ($pkg, %args ) = @_;
-    $args{root} //= 'Yote::SQLObjectStore::MariaDB::Root';
+    $args{root_package} //= 'Yote::SQLObjectStore::MariaDB::Root';
     return $pkg->SUPER::new( %args );
 }
 

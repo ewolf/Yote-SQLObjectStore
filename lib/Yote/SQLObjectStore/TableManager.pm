@@ -21,8 +21,8 @@ sub walk_for_perl {
     my $path = join( '/', $root, @path );
 
     my @perls = map { my $fn = $_->{filename}; $fn =~ s/(.*\/)([^\/]*).pm/$2/; join( "::", @path, $fn ) }
-                grep { $_->{count} } 
-                fgrep { /Yote::.*::Obj/ } 
+                grep { $_->{count} }
+                fgrep { /Yote::.*::Obj/ }
                 glob "$path/*pm";
 
     my %files = reverse %INC;
@@ -94,7 +94,7 @@ sub generate_hash_table {
     # the same table. yote still enforces the
     # type information for the field which area stored in the
     # object model packages. That means a hash of hash references
-    # and a hash of array references (both with keysize 256) are 
+    # and a hash of array references (both with keysize 256) are
     # stored in the HASH_256_REF table. yote makes sure an array
     # ref may not be stored in the hash of hashes table and a hash
     # ref not stored in the hash of arrays table.
@@ -107,7 +107,7 @@ sub generate_hash_table {
 
     return if $name2table->{$table_name};
 
-    my @column_sql = ( 
+    my @column_sql = (
         "id BIGINT UNSIGNED",
         "hashkey VARCHAR($hash_key_size)",
         );
@@ -131,7 +131,7 @@ sub generate_hash_table {
 
 sub generate_array_table {
     my ($self, $name2table, $field_type) = @_;
-    
+
     # generating a virtual table data structure
     # representing an array that has column reference
     # constraints
@@ -155,7 +155,7 @@ sub generate_array_table {
 
     return if $name2table->{$table_name};
 
-    my @column_sql = ( 
+    my @column_sql = (
         "id BIGINT UNSIGNED",
         "idx INT UNSIGNED",
         );
@@ -170,7 +170,7 @@ sub generate_array_table {
     push @column_sql, "UNIQUE (id,idx)";
 
     $name2table->{$table_name} = "CREATE TABLE IF NOT EXISTS $table_name (" .
-        join( ',', @column_sql ) .')';    
+        join( ',', @column_sql ) .')';
 
 #print STDERR "@)$table_label)$table_name)$name2table->{$table_name}\n";
 
@@ -244,16 +244,16 @@ sub generate_table_from_module {
 
 sub generate_tables_sql {
     my ($self, $base_obj_package, @INC_PATH) = @_;
-    
-    my @mods = $self->find_obj_packages( $base_obj_package, @INC_PATH );
 
+    my @mods = $self->find_obj_packages( $base_obj_package, @INC_PATH );
+#print STDERR Data::Dumper->Dump([\@mods,\@INC_PATH,"MODZ"]);
     my $name2table = {};
 
     for my $mod (@mods) {
         eval {
             my $package_file = $mod;
             $package_file =~ s/::/\//g;
-            
+
             require "$package_file.pm";
         };
 
@@ -271,9 +271,18 @@ sub generate_tables_sql {
         [$self->create_table_versions_sql],
         );
     push @sql, $self->tables_sql_updates( $name2table );
-    
+
 #print STDERR Data::Dumper->Dump([\@sql,"GOOP"]);
     @sql;
+}
+
+sub capture_versions {
+    # my ($version) = $store->query_line( "SELECT MAX(version) FROM TableVersions WHERE name=?", $table_name );
+    # $version = 1 + ($version // 0);
+    # push @sql, ["INSERT INTO TableVersions (name,version,create_table) VALUES (?,?,?)",
+    #             $table_name, $version, $create ];
+    # push @sql, [$store->insert_or_ignore." INTO TableDefs (name,version) VALUES (?,?)", $table_name, $version ];
+
 }
 
 sub tables_sql_updates {
@@ -285,81 +294,78 @@ sub tables_sql_updates {
     for my $table_name (keys %$name2table) {
         my $create = $name2table->{$table_name};
 
-        my $version;
-        my $needs_new_version = 1;
+        my $needs_new_table = 1;
 
-        my ($has_tables) = $store->has_table('TableVersions');
+        my( $has_table ) = $store->query_line( "SHOW TABLES LIKE '$table_name'" );
+        
+        if ($has_table) {
+            #
+            # if the table exists check if it needs an update
+            #
+            my $sth = $store->query_do( "DESC $table_name" );
+            
+            #table exists, otherwise query_do would have failed
+            $needs_new_table = 0;
 
-        if ($has_tables) {
-            my ($has_version) = $store->query_line( "SELECT COUNT(*) FROM TableVersions WHERE name=? AND create_table=?", $table_name, $create );
-            if ($has_version) {
-                $needs_new_version = 0;
-            } 
-            else {
-                ($version) = $store->query_line( "SELECT MAX(version) FROM TableVersions WHERE name=?", $table_name );
-                my ($old_table) = $store->query_line( "SELECT create_table FROM TableVersions WHERE name=? AND version=?", $table_name, $version );
-                if ($old_table) {
-                    # extract and compare the columns
-                    my ($old_columns_defs) = ($old_table =~ /^[^(]*\((.*)\)$/s);
-                    my $old_columns = Set::Scalar->new;
-                    my %old_columns;
-                    for my $col (split ',', $old_columns_defs) {
-                        $old_columns->insert( $col );
-                        my ($name, $def) = split /\s+/, $col, 2;
-                        $old_columns{$name} = $def;
-                    }
-                    my ($new_columns_defs) = ($create =~ /^[^(]*\((.*)\)$/s);
-                    my $new_columns = Set::Scalar->new;
-                    my %new_columns;
-                    for my $col (split ',', $new_columns_defs) {
-                        $new_columns->insert( $col );
-                        my ($name, $def) = split /\s+/, $col, 2;
-                        $new_columns{$name} = $def;
-                    }
-
-                    my $signatures_uniq_to_new = $new_columns->difference($old_columns);
-                    my $signatures_uniq_to_old = $old_columns->difference($new_columns);
-                    my %seen;
-
-                    for my $col (@$signatures_uniq_to_new) {
-                        # columns to add or change
-                        my ($col_name, $col_def) = split /\s+/, $col, 2;
-                        $seen{$col_name}++;
-
-                        # this column is changed
-                        if ($old_columns{$col_name}) {
-                            # update the column. is a list. for example sqlite needs more than one sql commands
-                            # to change a column
-                            my @update_sql = $self->change_column( $table_name, $col_name, $col_def );
-                            push @sql, [@update_sql];
-                        } 
-                        else { 
-                            #this column is new
-                            my @new_sql = $self->new_column( $table_name, $col_name, $col_def );
-                            push @sql, [@new_sql];
-                        }
-                    }
-
-                    for my $col (@$signatures_uniq_to_old) {
-                        # columns to archive
-                        my ($col_name, $col_def) = split /\s+/, $col, 2;
-                        my @new_sql = $self->archive_column( $table_name, $col_name, $col_def );
-                        push @sql, [@new_sql];
-
-                    }
-                }
-                # brand new table;
-                push @sql, [$create];
+            my $old_columns = Set::Scalar->new;
+            my %old_columns;
+            while (my $row = $sth->fetchrow_arrayref) {
+                my ($name, $def) = map { lc } @$row;
+                next if $name eq 'id';
+                $def =~ s/int\(\d+\)/int/;
+                $old_columns{$name} = $def;
+                $old_columns->insert( "$name $def" );
             }
-        } else {
-            # brand new table;
-            push @sql, [$create];
+
+            # extract and compare the columns
+            my ($new_columns_defs) = ($create =~ /^[^(]*\((.*?)(,unique +\([^\)]+\))?\)$/i);
+
+            my $new_columns = Set::Scalar->new;
+            my %new_columns;
+            for my $col (split ',', lc($new_columns_defs)) {
+                my ($name, $def) = split /\s+/, $col, 2;
+                next if $name eq 'id';
+                $def =~ s/int\(\d+\)/int/;
+                $new_columns{$name} = $def;
+                $new_columns->insert( $col );
+            }
+
+            my $signatures_uniq_to_new = $new_columns->difference($old_columns);
+            my $signatures_uniq_to_old = $old_columns->difference($new_columns);
+            print STDERR Data::Dumper->Dump([\%new_columns,\%old_columns,[@$signatures_uniq_to_new],[@$signatures_uniq_to_old],$create,"SHOW"]);
+
+            my %seen;
+            for my $col (@$signatures_uniq_to_new) {
+                # columns to add or change
+                my ($col_name, $col_def) = split /\s+/, $col, 2;
+                $seen{$col_name}++;
+
+                # this column is changed
+                if ($old_columns{$col_name}) {
+                    # update the column. is a list. for example sqlite needs more than one sql commands
+                    # to change a column
+                    my @update_sql = $self->change_column( $table_name, $col_name, $col_def );
+                    push @sql, [@update_sql];
+                }
+                else {
+                    #this column is new
+                    my @new_sql = $self->new_column( $table_name, $col_name, $col_def );
+                    push @sql, [@new_sql];
+                }
+            }
+
+            for my $col (@$signatures_uniq_to_old) {
+                # columns to archive
+                my ($col_name, $col_def) = split /\s+/, $col, 2;
+                next if $seen{$col_name};
+                my @new_sql = $self->archive_column( $table_name, $col_name, $col_def );
+                push @sql, [@new_sql];
+
+            }
         }
-        if ($needs_new_version) {
-            $version = 1 + ($version // 0);
-            push @sql, ["INSERT INTO TableVersions (name,version,create_table) VALUES (?,?,?)",
-                        $table_name, $version, $create ];
-            push @sql, [$store->insert_or_ignore." INTO TableDefs (name,version) VALUES (?,?)", $table_name, $version ];
+        
+        if ($needs_new_table) {
+            push @sql, [$create];
         }
     }
 

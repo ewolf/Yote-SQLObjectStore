@@ -14,6 +14,7 @@ sub new_column {
 
 sub change_column {
     my ($self, $table_name, $column_name, $column_def) = @_;
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,"CHANO"]);
     return 
         "ALTER TABLE $table_name CHANGE COLUMN $column_name $column_name $column_def";
 }
