@@ -521,11 +521,26 @@ sub fetch_string_path {
     $self->fetch_path(@path);
 }
 
-# get a path from the data structure from the list of path elements
+# fetch item from the root following that path
 sub fetch_path {
     my ($self, @path) = @_;
-
     my $from_id = $self->root_id;
+    return $self->_fetch_rel_path( $from_id, @path );
+}
+
+# fetch item from the root following that path
+sub fetch_rel_path {
+    my ($self, $item, @path) = @_;
+    my $from_id = $item->id;
+    return $self->_fetch_rel_path( $from_id, @path );
+}
+
+
+# fetch item from the item at the given id following that path
+sub _fetch_rel_path {
+    my ($self, $from_id, @path) = @_;
+
+
     while (defined(my $segment = shift @path)) {
         my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $segment );
         if ($ref_id) {
