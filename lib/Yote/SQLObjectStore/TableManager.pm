@@ -303,7 +303,7 @@ sub tables_sql_updates {
 
         my $needs_new_table = 1;
 
-        my( $has_table ) = $store->query_line( "SHOW TABLES LIKE '$table_name'" );
+        my( $has_table ) = $store->query_line( $store->show_tables_like($table_name) );
         
         if ($has_table) {
             #

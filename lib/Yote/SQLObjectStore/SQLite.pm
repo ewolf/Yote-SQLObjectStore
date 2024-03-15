@@ -24,6 +24,10 @@ sub insert_or_ignore {
     'INSERT OR IGNORE ';
 }
 
+sub show_tables_like {
+    my $tab = shift;
+    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '$tab'";
+}
 
 sub new {
     my ($pkg, %args ) = @_;
