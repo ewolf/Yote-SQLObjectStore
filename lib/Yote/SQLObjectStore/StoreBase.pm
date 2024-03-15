@@ -342,7 +342,7 @@ sub xform_in_full {
         my $obj = _yoteobj( $value );
         unless ($self->check_type( $obj, $type_def )) {
             my $checked_type = (ref $obj && $obj->{type}) || 'scalar value';
-            die "incorrect type '$checked_type' for '$type_def'";
+            die "incorrect type '$checked_type' for '$type_def' ($obj)";
         }
         $field_value = $obj->id;
     } else {
@@ -1014,8 +1014,8 @@ sub check_type {
     my ($self, $value, $type_def) = @_;
     my $obj = _yoteobj($value);
 
-    $obj
-        and
+    ! $obj
+        or
         $obj->isa( $self->base_obj ) ||
         $obj->isa( 'Yote::SQLObjectStore::TiedArray' ) ||
         $obj->isa( 'Yote::SQLObjectStore::TiedHash' )
