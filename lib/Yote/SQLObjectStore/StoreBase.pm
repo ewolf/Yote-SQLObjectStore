@@ -1085,7 +1085,7 @@ sub lock {
 sub unlock {
     my ($self, $tag) = @_;
     $tag =~ s/'//gs;
-    my ($res) = $self->query_line( "SELECT RELEASE_LOCK(?,1)", $tag );
+    my ($res) = $self->query_line( "SELECT RELEASE_LOCK(?)", $tag );
     if (! defined $res) {
         warn "unlock failed when called for unheld lock tag '$tag'";
     }
