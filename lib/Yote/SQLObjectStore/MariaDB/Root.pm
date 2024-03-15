@@ -6,17 +6,8 @@ use warnings;
 
 use base 'Yote::SQLObjectStore::MariaDB::Obj';
 
-sub _init {
-    my $self = shift;
-    my $store = $self->store;
-    $self->set_ref_hash( $store->new_ref_hash );
-    $self->set_val_hash( $store->new_value_hash );
-}
-
 # simply has a reference hash and a value hash
 our %cols = (
-    ref_hash => 'HASH_REF',
-    val_hash => 'HASH_VALUE',
+    ref_hash => '*HASH<256>_*',
+    val_hash => '*HASH<256>_VARCHAR(2000)',
 );
-
-1;

@@ -5,33 +5,22 @@ use warnings;
 
 no warnings 'uninitialized';
 
-use Yote::ObjectStore::Array;
-use Yote::ObjectStore::Obj;
-use Yote::ObjectStore::Hash;
+use Yote::SQLObjectStore::TiedArray;
+use Yote::SQLObjectStore::TiedHash;
 
 warn "Yote::Locker needs to be a service somewhere";
 use Yote::Locker;
 
-use Scalar::Util qw(weaken);
+use Scalar::Util qw(weaken blessed);
 use Time::HiRes qw(time);
 
 use vars qw($VERSION);
 
 $VERSION = '2.06';
 
-use constant {
-    DB_HANDLE    => 0,
-    DIRTY        => 1,
-    WEAK         => 2,
-    OPTIONS      => 3,
-    CACHE        => 4,
-    ROOT_PACKAGE => 5,
-    STATEMENTS   => 6,
-};
-
 =head1 NAME
 
-Yote::ObjectStore - store and lazy load perl objects, hashes and arrays.
+Yote::SQLObjectStore - store and lazy load perl objects, hashes and arrays.
 
 =head1 SYNOPSIS
 
@@ -86,17 +75,19 @@ sub new {
 
     my $dbh = $pkg->connect_sql( %args );
 
-    my $root_package = $args{ROOT_PACKAGE};
-    
-    return bless [
-        $dbh,   # 0
-        {},     # 1
-        {},     # 2
-        \%args, # 3
-        {},     # 4
-        $root_package,
-        {}
-        ], $pkg;
+    my $store = bless {
+        DBH          => $dbh,
+        DIRTY        => {},
+        WEAK         => {},
+        OPTIONS      => \%args,
+        ROOT_PACKAGE => $args{root},
+        STATEMENTS   => {},
+    }, $pkg;
+
+    $store->make_table_manager;
+
+    return $store;
+
 }
 
 sub open {
@@ -109,21 +100,24 @@ sub open {
 
 sub statements {
     my $self = shift;
-    return $self->[STATEMENTS];
+    return $self->{STATEMENTS};
 }
 
 sub dbh {
     my $self = shift;
-    return $self->[DB_HANDLE];
+    return $self->{DBH};
+}
+
+sub get_table_manager {
+    my $self = shift;
+    return $self->{TABLE_MANAGER};
 }
 
 sub store_obj_data_to_sql {
-    my ($self, $obj ) = @_;
+    my ($self, $ref ) = @_;
 
-    my $ref = $self->tied_item($obj);
-
-    my ($id, $table, @queries) = $ref->save_sql;
-
+    my $obj = _yoteobj($ref);
+    my (@queries) = $obj->save_sql;
     for my $q (@queries) {
         my ($update_obj_table_sql, @qparams) = @$q;
         $self->query_do( $update_obj_table_sql, @qparams );
@@ -134,8 +128,43 @@ sub record_count {
     my $self = shift;
 
     my ($count) = $self->query_line( "SELECT count(*) FROM ObjectIndex WHERE live=1" );
-    
+
     return $count;
+}
+
+sub make_all_tables {
+    my $self = shift;
+    my @sql = $self->make_all_tables_sql;
+    $self->query_do( "BEGIN" );
+    for my $s (@sql) {
+        my ($query, @qparams) = @$s;
+#print STDERR "MAKE > $query (@qparams)\n";
+        $self->query_do( $query, @qparams );
+    }
+    $self->query_do( "COMMIT" );
+#$self->print_query_output( "SELECT name FROM sqlite_master WHERE type='table'" );
+
+}
+
+sub make_all_tables_sql {
+    my $self = shift;
+    my $manager = $self->get_table_manager;
+    my @sql = $manager->generate_tables_sql( $self->base_obj );
+    return @sql;
+}
+
+sub check_table {
+    my ($self, $table_label) = @_;
+    my $manager = $self->get_table_manager;
+    my $name2table = {};
+    $manager->generate_reference_table( $name2table, $table_label );
+    my @sql = $manager->tables_sql_updates( $name2table );
+    $self->query_do( "BEGIN" );
+    for my $s (@sql) {
+        my ($query, @qparams) = @$s;
+        $self->query_do( $query, @qparams );
+    }
+    $self->query_do( "COMMIT" );
 }
 
 sub new_obj($*@) {
@@ -144,15 +173,26 @@ sub new_obj($*@) {
     $package_file =~ s/::/\//g;
     require "$package_file.pm";
 
-    my $table = join '_', reverse split /::/, $pkg;
+    my $table = $pkg->table_name;
 
-    my $id = $self->next_id( $table );
+    my $id = $self->next_id( $table, $pkg );
+
+    $self->check_table($pkg);
 
     my $obj_data = {};
-    my $obj = $pkg->new( $id, $table, $obj_data, $self, 0 );
+    my $obj = $pkg->new(
+        ID    => $id,
 
-    $self->weak( $id, $obj );
-    $self->dirty( $id, $obj );
+        data  => $obj_data,
+        store => $self,
+        table => $table,
+        type  => "*$pkg",
+
+        initial_vals  => \%args,
+        );
+
+    $self->weak( $obj );
+    $self->dirty( $obj );
 
     if (%args) {
         my $cols = $pkg->cols;
@@ -169,26 +209,127 @@ sub new_obj($*@) {
     return $obj;
 }
 
-sub new_ref_hash {
-    my ($self, %refs) = @_;
-    my $id = $self->next_id( 'HASH_REF' );
-    return $self->tie_hash( {}, $id, 'REF', \%refs );
+sub _new_thing {
+    my ($self, $type, @args) = @_;
+    if ($type =~ /^\*ARRAY_/) {
+        return $self->new_array( $type, @args );
+    }
+    elsif ($type =~ /^\*HASH<\d+>_/) {
+        return $self->new_hash( $type, @args );
+    }
+    my ($pkg) = ( $type =~ /^\*(.*)/ );
+    return $self->new_obj( $pkg, @args );
+}
+
+sub new_hash {
+    my ($self, $type, %args) = @_;
+
+    my ($value_type) = ($type =~ /^\*HASH<\d+>_(.*)/);
+
+    die "Cannot create hash of type '$type'" unless $value_type;
+
+    my $id = $self->next_id( $type );
+
+    $self->check_table( $type );
+
+    my $hash = Yote::SQLObjectStore::TiedHash->tie( $self, $id, $type );
+    my $tied = _yoteobj( $hash );
+    $self->weak( $tied );
+    $self->dirty( $tied );
+
+    for my $key (keys %args) {
+        $hash->{$key} = $args{$key};
+    }
+
+    return $hash;
+}
+
+sub has_id {
+    my ($self,$ref) = @_;
+    my $r = ref $ref;
+    return (tied @$ref)->id if $r eq 'ARRAY';
+    return (tied %$ref)->id if $r eq 'HASH';
+    return blessed $ref && $ref->can('id') && $ref->id;
+}
+
+sub _yoteobj {
+    my $ref = shift;
+    my $r = ref $ref;
+    return tied @$ref if $r eq 'ARRAY';
+    return tied %$ref if $r eq 'HASH';
+    return $ref;
+}
+
+sub new_array {
+    my ($self, $type, @vals) = @_;
+
+    my ($value_type) = ($type =~ /^\*ARRAY_(.*)/);
+
+    die "Cannot create array of type '$type'" unless $value_type;
+
+    my $id = $self->next_id( $type );
+    $self->check_table( $type );
+
+    my $array = Yote::SQLObjectStore::TiedArray->tie( $self, $id, $type );
+    my $tied = _yoteobj( $array );
+    $self->weak( $tied );
+    $self->dirty( $tied );
+
+    push @$array, @vals;
+    return $array;
 }
 
 
-sub new_ref_array {
-    my ($self, @refs) = @_;
-    my $id = $self->next_id( 'ARRAY_REF' );
-    return $self->tie_array( [], $id, 'REF', \@refs );
-}
-
-
+# given a thing and its type definition
+# return its internal value which will
+# either be an object id or a string value
 sub xform_in {
     my $self = shift;
     my $encoded = $self->xform_in_full(@_);
     return $encoded;
 }
 
+sub xform_in_full {
+    my ($self, $value, $type_def) = @_;
+
+    my $ref = ref( $value );
+
+    # check if type is right
+    my $field_value;
+    if ($type_def =~ /^\*/ && $value) {
+        my $obj = _yoteobj( $value );
+        unless ($self->check_type( $obj, $type_def )) {
+            my $checked_type = (ref $obj && $obj->{type}) || 'scalar value';
+            die "incorrect type '$checked_type' for '$type_def'";
+        }
+        $field_value = $obj->id;
+    } else {
+        $field_value = $value;
+    }
+
+    return $value, $field_value;
+}
+
+# given an internal value and definition
+# return the object or string value it represents
+# if it is a reference with a 0 id, return 0 indicating
+# not here
+sub xform_out {
+    my ($self, $value, $def) = @_;
+
+    if( $def !~ /^\*/ || $value == 0 ) {
+        return $value;
+    }
+
+    # other option is a reference and the value is an id
+
+    return $self->fetch( $value );
+}
+
+
+sub root_id {
+    1; #always 1
+}
 
 =head2 fetch_root()
 
@@ -198,14 +339,13 @@ Returns the root node of the object store.
 
 sub fetch_root {
     my $self = shift;
-    my $root_package = $self->[ROOT_PACKAGE];
 
-    my $root_id = 1;
+    my $root_id = $self->root_id;
 
     my $root = $self->fetch( $root_id );
     return $root if $root;
 
-    $root = $self->new_obj( $self->[ROOT_PACKAGE] );
+    $root = $self->new_obj( $self->{ROOT_PACKAGE} );
 
 } #fetch_root
 
@@ -219,19 +359,27 @@ If not given an object, saves all objects marked dirty.
 =cut
 
 sub save {
+
     my ($self,$obj) = @_;
-    my @dirty = $obj ? ([undef,$obj]) : values %{$self->[DIRTY]};
+    my @dirty = $obj ? ($obj) : values %{$self->{DIRTY}};
 
     # start transaction
-    for my $pair (@dirty) {
-        $self->store_obj_data_to_sql( $pair->[1] );
+    $self->_start_transaction;
+    for my $item (@dirty) {
+        $self->store_obj_data_to_sql( $item );
     }
-    %{$self->[DIRTY]} = ();
+    %{$self->{DIRTY}} = ();
+
+    $self->_commit_transaction;
 
     # end transaction
     return 1;
 } #save
 
+
+sub _start_transaction {}
+sub _commit_transaction {}
+sub _abort_transaction {}
 
 =head2 fetch( $id )
 
@@ -242,115 +390,333 @@ Returns the object with the given id.
 sub fetch {
     my ($self, $id) = @_;
     my $obj;
-    if (exists $self->[DIRTY]{$id}) {
-        $obj = $self->[DIRTY]{$id}[0];
+    if (exists $self->{DIRTY}{$id}) {
+        $obj = $self->{DIRTY}{$id};
     } else {
-        $obj = $self->[WEAK]{$id};
+        $obj = $self->{WEAK}{$id};
     }
- 
-    return $obj if $obj;
 
+    return $obj if $obj;
 
     $obj = $self->fetch_obj_from_sql( $id );
 
     return undef unless $obj;
 
-    $self->weak( $id, $obj );
+    $self->weak( $obj );
 
     return $obj;
+}
+
+sub _fetch_refid_or_val {
+    my ($self, $from_id, $key_or_index) = @_;
+
+    # check the cache first
+    my $obj = $self->in_cache($from_id);
+    if ($obj) {
+        my $ref = _yoteobj( $obj );
+        if (ref $ref eq 'Yote::SQLObjectStore::TiedArray') {
+            if ($ref->{value_type} =~ /^\*/) {
+                return $ref->{data}[$key_or_index], undef;
+            }
+            return 0, $ref->get( $key_or_index );
+        }
+        elsif (ref $ref eq 'Yote::SQLObjectStore::TiedHash') {
+            if ($ref->{value_type} =~ /^\*/) {
+                return $ref->{data}{$key_or_index}, undef;
+            }
+            return 0, $ref->get( $key_or_index );
+        }
+        my $field = $ref->cols->{$key_or_index};
+        if ($field =~ /^\*/) {
+            return $ref->{data}{$key_or_index}, undef;
+        }
+        return 0, $ref->get( $key_or_index );
+    }
+
+    # its not in the cache, so load from store
+    my $table_manager = $self->get_table_manager;
+    my ($tablehandle,$objectclass) = $self->query_line( "SELECT tablehandle,objectclass FROM ObjectIndex WHERE id=?", $from_id );
+    my $table = $table_manager->label_to_table( $tablehandle );
+    if ($tablehandle =~ /^\*ARRAY_(\*)?/) {
+        my ($val) = $self->query_line( "SELECT val FROM $table WHERE id=? AND idx=?", $from_id, $key_or_index );
+        if ($1) {
+            # a reference
+            return $val, undef;
+        }
+        return 0, $val;
+    }
+    elsif ($tablehandle =~ /^\*HASH\<\d+\>_(\*)?/) {
+        my ($val) = $self->query_line( "SELECT val FROM $table WHERE id=? AND hashkey=?", $from_id, $key_or_index );
+        if ($1) {
+            # a reference
+            return $val, undef;
+        }
+        return 0, $val;
+    }
+
+    # load the object class
+    my $package_file = $objectclass;
+    $package_file =~ s/::/\//g;
+
+    require "$package_file.pm";
+
+    die "Invalid Column Name for yote '$key_or_index'" if $key_or_index =~ /[^_a-zA-Z0-9]/;
+    my ($val) = $self->query_line( "SELECT $key_or_index FROM $table WHERE id=?", $from_id );
+
+    my $cols = $objectclass->cols;
+    if ($cols->{$key_or_index} =~ /^\*/) {
+        # a reference
+        return $val, undef;
+    }
+    return 0, $val;
 }
 
 # get a path from the data structure
 sub fetch_path {
     my ($self, $path) = @_;
     my @path = grep { $_ ne '' } split '/', $path;
-    my $fetched = $self->fetch_root;
-    while (my $segment = shift @path) {
-        if ($segment =~ /(.*)\[(\d+)\]$/) { #list or list segment
-            my ($list_name, $idx) = ($1, $2);
-            $fetched = ref($fetched) eq 'HASH' ? $fetched->{$list_name} : $fetched->get( $list_name );
-            $fetched = $fetched->[$idx];
+
+    my $from_id = $self->root_id;
+    while (defined(my $segment = shift @path)) {
+        my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $segment );
+        if ($ref_id) {
+            $from_id = $ref_id;
         } else {
-            $fetched = ref($fetched) eq 'HASH' ? $fetched->{$segment} : $fetched->get($segment);
+            die "invalid path '$path', '$segment' is not a reference" if @path;
+            return $val;
         }
-        last unless defined $fetched;
     }
-    return $fetched;
+    return $self->fetch( $from_id );
 }
 
 sub ensure_path {
-    my ($self, $path) = @_;
-    my @path = grep { $_ ne '' } split '/', $path;
-    my $fetched = $self->fetch_root;
+#     my ($self, $path) = @_;
+#     my @path = grep { $_ ne '' } split '/', $path;
 
-    while (my $segment = shift @path) {
-        if ($segment =~ /(.*)\[(\d*)\]$/) { #list or list segment
-            my ($list_name, $idx) = ($1, $2);
-            $fetched = $fetched->get( $list_name );
-            return undef unless ref $fetched ne 'ARRAY';
-            if ($idx ne '') {
-                $fetched = $fetched->[$idx];
-            } elsif( @path ) {
-                # no id and more in path? nope!
-                return undef;
-            } else {
-                return $fetched;
-            }
-        } else {
-            $fetched = ref($fetched) eq 'HASH' ? $fetched->{$segment} : $fetched->get($segment);
-        }
-        last unless defined $fetched;
-    } 
+#     my $current_ref = $self->fetch_root; # always a root
+#     my $from_id = $self->root_id;
+
+#     $self->_start_transaction();
+
+#     while (my $segment = shift @path) {
+#         my ($key, $array_idx, $col_def) = ( $segment =~ /^([^\[]+)(\[\d+\]+)?(\{[^\}]+\})?$/ );
+#         if (!$key) {
+#             die "invalid path '$path', '$segment' is malformed";
+#         }
+#         if ($col_def) {
+#             ( $col_def ) = ( $col_def =~ /^\{(.+)\}$/ );
+#         }
+#         if ($array_idx) {
+#             ( $array_idx ) = ( $array_idx =~ /^\[(\d+)\]$/ );
+#         }
+
+
+#         # see if the key has a value already
+#         my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $key );
+
+#         # key is there, then check if its an array element that is there.
+#         # if there after the check, set the current from_id and loop again
+#         if ($ref_id) {
+#             if (defined $array_idx) {
+#                 ($ref_id,$val) = $self->_fetch_refid_or_val( $ref_id, $key );
+#             }
+#             if ($ref_id) {
+#                 $from_id = $ref_id;
+#                 $current_ref = $val;
+#                 next;
+#             } elsif (@path) {
+#                 die "invalid path '$path', '$segment' is not a reference";
+#             }
+#         } elsif (defined $val) {
+#             die "invalid path '$path', '$segment' is not a reference" if @path;
+#             return $val;
+#         }
+
+#         # now have to try to create the thing
+        
+#         # the thing is attached to the current ref. is the current ref
+#         # an array, hash or class?
+#         my $curr_obj = _yoteobj( $current_ref );
+
+#         my $is_hash  = $curr_obj->isa('Yote::SQLObjectStore::TiedHash');
+#         my $is_array = (! $is_hash) && $curr_obj->isa('Yote::SQLObjectStore::TiedArray');
+
+#         if ($is_hash) { # /somehash/foo{deforval}
+#             die "invalid path '$path', '$segment' key too large"
+#                 if length( $key ) > $curr_obj->key_size;
+
+
+#             my $value_type = $curr_obj->data_type;
+
+#             if ($value_type =~ /^\*/) {
+#                 if ($col_def) {
+#                     die "invalid path '$path', '$segment' is wrong type"
+#                         unless $curr_obj->is_type( $col_def );
+#                 }
+#                 my $thing;
+#                 eval {
+#                     $thing = $self->_new_thing( $value_type );
+#                 };
+#                 if ($@ || ! $thing) {
+#                     $self->_rollback_transaction();
+#                     return;
+#                 }
+                
+#                 $current_ref->{$key} = $thing;
+
+#                 if (0 == @path) {
+#                     return $thing;
+#                     #return the thing
+#                 }
+#             } elsif( @path ) {
+#                 die "invalid path '$path', '$segment' is not defined to be a reference";
+#             } else {
+#                 $current_ref->{$key} = $col_def;
+#                 return $col_def;
+#             }
+
+#         }
+
+#         elsif ($is_array) { # /somearray[12]{deforval}
+
+#             if (@path && (! defined $array_idx)) {
+#                 die "invalid path '$path', '$segment' must include index for array unless it is the last part of the path";
+#             }
+
+#             my $value_type = $curr_obj->data_type;
+
+#             if ($value_type =~ /^\*/) {
+#                 if ($col_def) {
+#                     die "invalid path '$path', '$segment' is wrong type"
+#                         unless $curr_obj->is_type( $col_def );
+#                 }
+#                 my $thing;
+#                 eval {
+#                     $thing = $self->_new_thing( $value_type );
+#                 };
+#                 if ($@ || ! $thing) {
+#                     $self->_rollback_transaction();
+#                     return;
+#                 }
+
+#                 $current_ref->[$array_idx] = $thing;
+
+#                 if (0 == @path) {
+#                     return $thing;
+#                     #return the thing
+#                 }
+#             } elsif( @path ) {
+#                 die "invalid path '$path', '$segment' is not defined to be a reference";
+#             } else {
+#                 $current_ref->[$array_idx] = $col_def;
+#                 return $col_def;
+#             }
+
+#         }
+
+#         if ($is_hash || $is_array) {
+#             $value_type = $curr_obj->data_type;
+
+#             # check to make sure key size is correct if a hash
+#             if ($is_hash) { 
+#                 die "invalid path '$path', '$segment' key too large"
+#                     if length( $key ) > $curr_obj->key_size;
+                
+#             }
+            
+#             my $new_segment_val;
+#             # if the type is a reference
+#             if ($value_type =~ /^\*/) {
+                
+#             } elsif( @path ) {
+#                 die "invalid path '$path', '$segment' is not defined to be a reference";
+#             } else {
+#                 $new_segment_val = 
+#             }
+#         }
+#         # otherwise a yote object
+#         else {
+#             $value_type = $curr_obj->col_type( $key );
+#             if ($col_def && $value_type ne $col_def) {
+#                 die "invalid path '$path', '$segment' requests '$col_def' but key '$key' requires '$value_type'";
+#             }
+#             # create and set the thing
+#         }
+        
+
+#         my $next_part = $current_ref->get( $key );
+#         if (defined $next_part) {
+#             if (0 == @path) {
+#                 return $next_part;
+#             }
+#             if (! ref $next_part) {
+#                 die "invalid path '$path', '$segment' is not a reference" if @path;
+#             }
+#             $current_ref = $next_part;
+#             $from_id = $
+#             next;
+#         }
+
+
+#         if ($segment =~ /(.*)\[(\d+)\]$/) { #list or list segment
+#             my ($list_name, $idx) = ($1, $2);
+#             my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $list_name );
+#             die "invalid path '$path', '$segment' is not an array reference" unless $ref;
+#             ($ref_id,$val,my @rest) = $self->_fetch_refid_or_val( $ref_id, $idx );
+#             if (! $ref_id) {
+#                 die "invalid path '$path', '$segment' is not a reference" if @path;
+#                 return $val;
+#             }
+#             $from_id = $ref_id;
+#         } else {
+#             my ($ref_id,$val) = $self->_fetch_refid_or_val( $from_id, $segment );
+#             if (! $ref_id) {
+#                 die "invalid path '$path', '$segment' is not a reference" if @path;
+#                 return $val;
+#             }
+#             $from_id = $ref_id;
+#         }
+#     }
+# #    $self->_rollback_transaction();
+#     return $self->fetch( $from_id );
 }
-
-
-=head2 tied_item( $obj )
-
-If the object is tied 
-(like Yote::ObjectStore::Array or (like Yote::ObjectStore::Hash) it returns the unlerlying tied object.
-
-=cut
-
-sub tied_item {
-    my ($self, $item) = @_;
-    my $r = ref( $item );
-    my $tied = $r eq 'ARRAY' ? tied @$item
-	: $r eq 'HASH' ? tied %$item
-	: $item;
-    return $tied;
-} #tied_item
 
 
 =head2 is_dirty(obj)
 
-Returns true if the object need saving.
+Returns true if the object is a base storable object that needs saving.
 
 =cut
 
 sub is_dirty {
-    my ($self,$obj) = @_;
-    my $id = $self->id_for_item( $obj );
-    return defined( $self->[DIRTY]{$id} );
+    my ($self,$ref) = @_;
+    my $obj = _yoteobj($ref);
+    unless ( blessed $obj and $obj->isa('Yote::SQLObjectStore::BaseStorable')
+             || $obj->isa('Yote::SQLObjectStore::TiedArray')
+             || $obj->isa('Yote::SQLObjectStore::TiedHash') )
+    {
+        warn "checked if non base value is dirty";
+        return;
+    }
+
+    return defined( $self->{DIRTY}{$obj->id} );
 }
 
-=head2 id(obj)
-
-Returns id of object, creating it if necessary.
-
-=cut
-sub id_for_item {
-    my ($self, $item) = @_;
-    my $tied = $self->tied_item($item);
-    return $tied->id;
-} #next_id
+sub in_cache {
+    my ($self, $id) = @_;
+    return $self->{DIRTY}{$id} || $self->{WEAK}{$id};
+}
 
 # make a weak reference of the reference
 # and save it by id
 sub weak {
-    my ($self,$id,$ref) = @_;
-    $self->[WEAK]{$id} = $ref;
+    my ($self,$ref) = @_;
+    my $obj = _yoteobj($ref);
+    my $id = $obj->id;
+    my $cache_obj = $obj->cache_obj;
+    $self->{WEAK}{$id} = $cache_obj;
 
-    weaken( $self->[WEAK]{$id} );
+    weaken( $self->{WEAK}{$id} );
 }
 
 #
@@ -359,23 +725,23 @@ sub weak {
 # in the DIRTY cache
 #
 sub dirty {
-    my ($self,$id,$obj) = @_;
-    unless ($self->[WEAK]{$id}) {
-	$self->weak($id,$obj);
+    my ($self,$ref) = @_;
+    my $obj = _yoteobj($ref);
+    return unless blessed $obj;
+    my $id = $obj->id;
+    unless ($self->{WEAK}{$id}) {
+	$self->weak($obj);
     }
-    my $target = $self->[WEAK]{$id};
+    my $target = $self->{WEAK}{$id};
 
-    my @dids = keys %{$self->[DIRTY]};
+    my @dids = keys %{$self->{DIRTY}};
 
-    my $tied = $self->tied_item( $target );
-
-    $self->[DIRTY]{$id} = [$target,$tied];
+    $self->{DIRTY}{$id} = $target;
 } #dirty
 
 sub next_id {
-    my ($self, $table) = @_;
-    
-    return $self->insert_get_id( "INSERT INTO ObjectIndex (objtable,live) VALUES(?,1)", $table );
+    my ($self, $table_handle, $objectclass) = @_;
+    return $self->insert_get_id( "INSERT INTO ObjectIndex (tablehandle,objectclass,live) VALUES (?,?,1)", $table_handle, $objectclass );
 }
 
 
@@ -387,7 +753,8 @@ sub sth {
     my $stats = $self->statements;
     my $dbh   = $self->dbh;
     my $sth   = ($stats->{$query} //= $dbh->prepare( $query ));
-    $sth or die $dbh->errstr;
+
+    $sth or die "$query : ". $dbh->errstr;
 
     return $sth;
 }
@@ -401,28 +768,11 @@ sub insert_get_id {
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
-    return $id;    
+    return $id;
 }
-
-sub query_all {
-    my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
-    my $dbh = $self->dbh;
-    my $sth = $dbh->prepare( $query );
-    if (!defined $sth) {
-        die $dbh->errstr;
-    }
-    my $res = $sth->execute( @qparams );
-    if (!defined $res) {
-        die $sth->errstr;
-    }
-    return $sth->fetchall_hashref('id');
-}
-
 
 sub query_do {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
@@ -438,7 +788,6 @@ sub query_do {
 
 sub query_line {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query line"]);    
     my $sth = $self->sth( $query );
 
     my $res = $sth->execute( @qparams );
@@ -446,7 +795,17 @@ sub query_line {
         die $sth->errstr;
     }
     my @ret = $sth->fetchrow_array;
+
     return @ret;
+}
+
+sub print_query_output {
+    my ($self, $query, @qparams ) = @_;
+    my $sth = $self->sth( $query );
+    my $res = $sth->execute( @qparams );
+    if (!defined $res) {
+        die $sth->errstr;
+    }
 }
 
 sub apply_query_array {
@@ -456,24 +815,69 @@ sub apply_query_array {
     if (!defined $res) {
         die $sth->errstr;
     }
-    while ( my @arry = $sth->fetchrow_array ) {
-        $eachrow_fun->(@arry);
+    while ( my (@array) = $sth->fetchrow_array ) {
+        $eachrow_fun->(@array);
     }
 }
 
 
+sub fetch_obj_from_sql {
+    my ($self, $id) = @_;
+
+    my ($handle,$class) = $self->query_line(
+        "SELECT tablehandle, objectclass FROM ObjectIndex WHERE id=?",
+        $id );
+
+    return undef unless $handle;
+
+    if ($handle =~ /^\*HASH<\d+>_.*/) {
+        return Yote::SQLObjectStore::TiedHash->tie( $self, $id, $handle );
+    }
+    elsif ($handle =~ /^\*ARRAY_.*/) {
+        return Yote::SQLObjectStore::TiedArray->tie( $self, $id, $handle );
+    }
+
+    # otherwise is an object, so grab its data
+
+    my $table = $handle;
+
+    my $package_file = $class;
+    $package_file =~ s/::/\//g;
+
+    require "$package_file.pm";
+
+    my $cols = $class->cols;
+    my @cols = keys %$cols;
+
+    my $sql = "SELECT ".join(',', @cols )." FROM $table WHERE id=?";
+
+    my (@ret) = $self->query_line( $sql, $id );
+
+    my $obj = $class->new(
+        ID => $id,
+
+        data => { map { $cols[$_] => $ret[$_] } (0..$#cols) },
+        has_first_save => 1,
+        store => $self,
+        table => $table,
+        type  => "*$class",
+
+        );
+
+    return $obj;
+}
+
+sub check_type {
+    my ($self, $value, $type_def) = @_;
+    my $obj = _yoteobj($value);
+
+    $obj
+        and
+        $obj->isa( $self->base_obj ) ||
+        $obj->isa( 'Yote::SQLObjectStore::TiedArray' ) ||
+        $obj->isa( 'Yote::SQLObjectStore::TiedHash' )
+        and
+        $obj->is_type( $type_def );
+}
+
 "BUUG";
-
-=head1 AUTHOR
-       Eric Wolf        coyocanid@gmail.com
-
-=head1 COPYRIGHT AND LICENSE
-
-       Copyright (c) 2012 - 2024 Eric Wolf. All rights reserved.  This program is free software; you can redistribute it and/or modify it
-       under the same terms as Perl itself.
-
-=head1 VERSION
-       Version 1.00  (Feb, 2024))
-
-=cut
-
