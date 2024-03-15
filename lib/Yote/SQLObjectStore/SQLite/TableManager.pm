@@ -33,6 +33,36 @@ sub undecorate_column {
     return $coldef;
 }
 
+sub abridged_columns_for_table {
+    my ($self, $table_name) = @_;
+    my $sth = $self->store->query_do( "PRAGMA table_info($table_name)" );
+
+    my @col_pairs;
+    while (my $row = $sth->fetchrow_arrayref) {
+        my (undef, $name, $def) = map { lc } grep { defined } @$row;
+        next if $name eq 'id';
+        $def = $self->undecorate_column( $def );
+        push @col_pairs, [$name, $def];
+    }
+    return @col_pairs;
+}
+
+sub abridged_columns_from_create_string {
+    my ($self, $create) = @_;
+    my ($new_columns_defs) = ($create =~ /^[^(]*\((.*?)(,unique +\([^\)]+\))?\)$/i);
+    my @col_pairs;
+
+    for my $col (split ',', lc($new_columns_defs)) {
+        my ($name, $def) = split /\s+/, $col, 2;
+        next if $name eq 'id';
+        $def = $self->undecorate_column( $def );
+        push @col_pairs, [$name, $def];
+    }
+    
+    return @col_pairs;
+}
+
+
 
 sub create_object_index_sql {
     return <<"END";

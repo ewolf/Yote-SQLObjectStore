@@ -561,7 +561,6 @@ sub ensure_paths {
     my $endpoint;
     eval {
         for my $path (@paths) {
-            print STDERR "ENSURE $path\n";
             $endpoint = $self->_ensure_path( ref $path ? @$path : $path );
         }
     };
@@ -602,10 +601,8 @@ sub _convert_string_path {
     
     my @path;
     while ($str_path =~ /^(((.*?)(^|[^\\])(\\\\)*)\/(.*))|(.+?)$/ ) {
-#        print "<$1><$2><$3><$4><$5><$6><$7>\n";
         my $segment = $7 || $2;
         $str_path = $6;
-#        print "($segment)\n";
         next unless $segment;
         my ($key_or_val, $class) = split /\|/, $segment, 2;
         if ($class) {
@@ -907,7 +904,7 @@ sub sth {
 sub insert_get_id {
     my ($self, $query, @qparams ) = @_;
     my $dbh = $self->dbh;
-print STDERR "QUERY INS: $query [@qparams]\n" if $QUERY_DEBUG;
+    print STDERR "QUERY INS: $query [@qparams]\n" if $QUERY_DEBUG;
     my $sth = $self->sth( $query );
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
@@ -920,15 +917,15 @@ print STDERR "QUERY INS: $query [@qparams]\n" if $QUERY_DEBUG;
 sub query_do {
     my ($self, $query, @qparams ) = @_;
     my $dbh = $self->dbh;
-print STDERR "QUERY: $query [@qparams]\n" if $QUERY_DEBUG;
+    print STDERR "QUERY: $query [@qparams]\n" if $QUERY_DEBUG;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,$dbh->errstr,"NOWOO"]);
+        use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,$dbh->errstr,"NOWOO"]);
         die $dbh->errstr;
     }
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,$sth->errstr,"BADO"]);
+        use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$query,\@qparams,$sth->errstr,"BADO"]);
         die $sth->errstr;
     }
     return $sth;
