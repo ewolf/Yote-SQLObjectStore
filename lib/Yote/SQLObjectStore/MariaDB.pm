@@ -23,10 +23,9 @@ sub insert_or_ignore {
 }
 
 sub show_tables_like {
-    my $tab = shift;
-    "SHOW TABLES LIKE '$tab'";
+    my ($self,$tab) = @_;
+    return "SHOW TABLES LIKE '$tab'";
 }
-
 
 sub new {
     my ($pkg, %args ) = @_;

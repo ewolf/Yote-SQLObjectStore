@@ -25,7 +25,7 @@ sub insert_or_ignore {
 }
 
 sub show_tables_like {
-    my $tab = shift;
+    my ($self,$tab) = @_;
     "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '$tab'";
 }
 

@@ -124,7 +124,6 @@ sub generate_hash_table {
     }
 
     push @column_sql, "UNIQUE (id,hashkey)";
-
     $name2table->{$table_name} = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';
 
@@ -215,7 +214,6 @@ sub generate_table_from_module {
     my %column_defs;
 
     my $cols = $mod->cols;
-
     $name2table->{$table_name} = {
         module           => $mod,
         table_name       => $table_name,
@@ -303,8 +301,8 @@ sub tables_sql_updates {
 
         my $needs_new_table = 1;
 
-        my( $has_table ) = $store->query_line( $store->show_tables_like($table_name) );
-        
+        my( $has_table ) = $store->query_line( "SHOW TABLES LIKE '$table_name'" );
+        ( $has_table ) = $store->query_line( $store->show_tables_like($table_name) );
         if ($has_table) {
             #
             # if the table exists check if it needs an update
