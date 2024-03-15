@@ -20,7 +20,7 @@ for my $arg (qw(dbname username password)) {
 }
 
 my @INC_PATH = @ARGV;
-
+push @INC, @INC_PATH;
 
 my $store = Yote::SQLObjectStore->new( 'MariaDB', %opts );
 if (my @updates = $store->make_all_tables_sql(@INC_PATH)) {

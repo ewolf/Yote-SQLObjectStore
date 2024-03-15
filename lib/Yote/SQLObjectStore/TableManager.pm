@@ -36,9 +36,9 @@ sub walk_for_perl {
         next if $files{$as_path};
         next if $seen_packages->{$mod}++;
 
-        my @reqlist = grep { $_ !~ /^(base|strict|warnings)$/ } requires( $mod );
-
-        if (grep { $_ eq $base_obj_pkg } @reqlist) {
+        my @reqlist = grep { $_ && $_ !~ /^(base|strict|warnings)$/ } requires( $mod );
+        if ( $mod->isa( $base_obj_pkg ) or 
+             grep { $_ eq $base_obj_pkg } @reqlist) {
             push @mods, $mod;
         }
     }
@@ -128,8 +128,6 @@ sub generate_hash_table {
     $name2table->{$table_name} = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';
 
-#print STDERR "%)$table_label)$table_name)$name2table->{$table_name}\n";
-
     $self->generate_reference_table($name2table,$field_value) if $is_ref;
 }
 
@@ -175,8 +173,6 @@ sub generate_array_table {
 
     $name2table->{$table_name} = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';
-
-#print STDERR "@)$table_label)$table_name)$name2table->{$table_name}\n";
 
     $self->generate_reference_table($name2table,$field_value) if $is_ref;
 }
@@ -237,8 +233,6 @@ sub generate_table_from_module {
 
     $name2table->{$table_name} = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';
-
-#print STDERR "R)$table_label)$table_name)$name2table->{$table_name}\n";
 
     for my $ref_type (@ref_types) {
         $self->generate_reference_table($name2table,$ref_type);
