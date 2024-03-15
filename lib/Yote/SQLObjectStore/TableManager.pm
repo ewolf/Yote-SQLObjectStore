@@ -49,10 +49,10 @@ sub walk_for_perl {
 }
 
 sub find_obj_packages {
-    my ($self,$base_obj_package) = @_;
+    my ($self,$base_obj_package, @INC_PATH) = @_;
     my @mods;
     my $seen_packages = {};
-    for my $dir (@INC) {
+    for my $dir (@INC_PATH) {
         next if $dir eq '.';
         # find the perl files in this directory
         push @mods, $self->walk_for_perl( $base_obj_package, $seen_packages, $dir );
@@ -242,10 +242,9 @@ sub generate_table_from_module {
 }
 
 sub generate_tables_sql {
-    my ($self, $base_obj_package) = @_;
+    my ($self, $base_obj_package, @INC_PATH) = @_;
     
-    my @mods = $self->find_obj_packages( $base_obj_package );
-
+    my @mods = $self->find_obj_packages( $base_obj_package, @INC_PATH );
     my $name2table = {};
 
     for my $mod (@mods) {

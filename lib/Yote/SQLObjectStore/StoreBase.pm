@@ -132,9 +132,14 @@ sub record_count {
     return $count;
 }
 
+sub needs_table_updates {
+    my ($self, @INC_PATH) = @_;
+    $self->make_all_tables_sql(@INC_PATH);
+}
+
 sub make_all_tables {
-    my $self = shift;
-    my @sql = $self->make_all_tables_sql;
+    my ($self, @INC_PATH) = @_;
+    my @sql = $self->make_all_tables_sql(@INC_PATH);
     $self->start_transaction;
     for my $s (@sql) {
         my ($query, @qparams) = @$s;
@@ -145,9 +150,9 @@ sub make_all_tables {
 }
 
 sub make_all_tables_sql {
-    my $self = shift;
+    my ($self, @INC_PATH) = @_;
     my $manager = $self->get_table_manager;
-    my @sql = $manager->generate_tables_sql( $self->base_obj );
+    my @sql = $manager->generate_tables_sql( $self->base_obj, @INC_PATH );
     return @sql;
 }
 

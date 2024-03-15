@@ -41,6 +41,7 @@ Yote::SQLObjectStore - Rooted tree based Object Store atop SQL
      say "\nREVIEW THE ABOVE AND RUN THE SQL IF GOOD\n";
      exit;
    } else {
+     say "YOLO the tables";
      $object_store->make_all_tables;
    }
  }
