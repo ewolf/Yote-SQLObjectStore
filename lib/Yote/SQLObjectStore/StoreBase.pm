@@ -335,7 +335,6 @@ sub xform_in_full {
             my $checked_type = (ref $obj && $obj->{type}) || 'scalar value';
             die "incorrect type '$checked_type' for '$type_def' ($obj)";
         }
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$value]) unless $obj;
         $field_value = $obj->id;
     } else {
         $field_value = $value;
