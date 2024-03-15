@@ -531,7 +531,7 @@ sub fetch_path {
 # fetch item from the root following that path
 sub fetch_rel_path {
     my ($self, $item, @path) = @_;
-    my $from_id = $item->id;
+    my $from_id = _yoteobj($item)->id;
     return $self->_fetch_rel_path( $from_id, @path );
 }
 
@@ -748,8 +748,19 @@ sub del_path {
     $old_val;
 }
 
+sub set_rel_path {
+    my ($self, $item, @path) = @_;
+    my $from_id = _yoteobj($item)->id;
+    return $self->_set_path_trans( $from_id, @path );
+}
+
 sub set_path {
     my ($self, @path) = @_;
+    return $self->_set_path_trans( $self->root_id, @path );
+}
+
+sub _set_path_trans {
+    my ($self, $from_id, @path) = @_;
     if (@path < 2) {
         die "set_path. path '@path' not long enough to set";
     }
@@ -757,7 +768,7 @@ sub set_path {
     my $endpoint;
     $self->{temp_refs} = {};
     eval {
-        $endpoint = $self->_set_path( @path );
+        $endpoint = $self->_set_path( $from_id, @path );
     };
     if (my $err = $@) {
         for my $id (keys %{$self->{temp_refs}}) {
@@ -772,14 +783,12 @@ sub set_path {
 }
 
 sub _set_path {
-    my ($self, @path ) = @_;
+    my ($self, $from_id, @path ) = @_;
     
     my $set_value   =  pop @path;
     my $insert_key  =  pop @path;
 
     # always starts from root
-    my $current_ref  =   $self->fetch_root;
-    my $from_id      =   $self->root_id;
     while (my $key = shift @path) {
         my ($ref_id) = $self->_fetch_refid_or_val( $from_id, $key );
 
@@ -791,7 +800,7 @@ sub _set_path {
 
         $from_id = $ref_id;
     }
-    $current_ref = $self->fetch( $from_id );
+    my $current_ref = $self->fetch( $from_id );
     my $curr_obj = _yoteobj( $current_ref );
     $curr_obj->set( $insert_key, $set_value );
     return $set_value;
