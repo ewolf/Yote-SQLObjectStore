@@ -134,11 +134,6 @@ sub record_count {
     return $count;
 }
 
-sub needs_table_updates {
-    my ($self, @INC_PATH) = @_;
-    $self->make_all_tables_sql(@INC_PATH);
-}
-
 sub make_all_tables {
     my ($self, @INC_PATH) = @_;
     my @sql = $self->make_all_tables_sql(@INC_PATH);
@@ -149,10 +144,6 @@ sub make_all_tables {
         $self->query_do( $query, @qparams );
     }
     $self->commit_transaction;
-
-    #
-    # update the stored versions
-    #
 }
 
 sub make_all_tables_sql {
@@ -344,11 +335,11 @@ sub xform_in_full {
             my $checked_type = (ref $obj && $obj->{type}) || 'scalar value';
             die "incorrect type '$checked_type' for '$type_def' ($obj)";
         }
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,$value]) unless $obj;
         $field_value = $obj->id;
     } else {
         $field_value = $value;
     }
-
     return $value, $field_value;
 }
 
@@ -533,7 +524,6 @@ sub fetch_string_path {
 # get a path from the data structure from the list of path elements
 sub fetch_path {
     my ($self, @path) = @_;
-
 
     my $from_id = $self->root_id;
     while (defined(my $segment = shift @path)) {
@@ -793,6 +783,47 @@ sub _set_path {
     my $curr_obj = _yoteobj( $current_ref );
     $curr_obj->set( $insert_key, $set_value );
     return $set_value;
+}
+
+sub set_path_if_not_exist {
+    my ($self, @path) = @_;
+    if (@path < 2) {
+        die "set_path. path '@path' not long enough to set";
+    }
+    $self->start_transaction();
+    my $endpoint;
+    $self->{temp_refs} = {};
+    eval {
+        $endpoint = $self->_set_path_if_not_exist( @path );
+    };
+    if (my $err = $@) {
+        for my $id (keys %{$self->{temp_refs}}) {
+            delete $self->{DIRTY}{$id};
+            delete $self->{WEAK}{$id};
+        }
+        $self->rollback_transaction();
+        die $err;
+    }
+    $self->commit_transaction();
+    return $endpoint;
+}
+
+sub _set_path_if_not_exist {
+    my ($self, @path ) = @_;
+    
+    my $set_value   =  pop @path;
+    my $insert_key  =  pop @path;
+
+    if ($self->has_path( @path, $insert_key )) {
+        return $self->fetch_path( @path, $insert_key );
+    }
+
+    # always starts from root
+    my $current_ref  =   $self->fetch_path( @path );
+    my $curr_obj = _yoteobj( $current_ref );
+    my $val = ref $set_value eq 'CODE' ? $set_value->() : $set_value ;
+    $curr_obj->set( $insert_key, $val );
+    return $val;
 }
 
 

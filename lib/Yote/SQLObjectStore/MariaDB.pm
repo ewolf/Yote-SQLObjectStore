@@ -36,7 +36,7 @@ sub connect_sql {
                             $args{username},
                             $args{password},
                             { PrintError => 0 } );
-    die "$@ $!" unless $dbh;
+    confess "$@ $!" unless $dbh;
     
     return $dbh;
     
