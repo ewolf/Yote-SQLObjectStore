@@ -242,7 +242,7 @@ sub new_obj($*@) {
             if ( my $coldef = $cols->{$input_field} ) {
                 $obj_data->{$input_field} = $self->xform_in( $args{$input_field}, $coldef );
             } else {
-                warn "'$input_field' does not exist for object with package $pkg";
+                die "'$input_field' does not exist for object with package $pkg";
             }
         }
     }
@@ -511,7 +511,6 @@ sub _fetch_refid_or_val {
     $package_file =~ s/::/\//g;
 
     require "$package_file.pm";
-
     die "Invalid Column Name for yote '$key_or_index'" if $key_or_index =~ /[^-_a-zA-Z0-9]/;
     my ($val) = $self->query_line( "SELECT $key_or_index FROM $table WHERE id=?", $from_id );
 
@@ -717,6 +716,36 @@ sub _ensure_path {
     return $current_ref;
 } #_ensure_path
 
+sub del_string_path {
+    my ($self, $path) = @_;
+    my @path = (grep { $_ ne '' } split '/', $path);
+    $self->del_path( @path );
+}
+
+sub del_path {
+    my ($self, @path) = @_;
+
+    # always starts from root
+    my $current_ref  =   $self->fetch_root;
+    my $from_id      =   $self->root_id;
+
+    my $del_key = pop @path;
+    my ($ref_id, $ref_type);
+    while (my $key = shift @path) {
+        ($ref_id, undef, $ref_type) = $self->_fetch_refid_or_val( $from_id, $key );
+
+        die "encounterd non reference in path" unless $ref_id;
+        
+        $from_id = $ref_id;
+    }
+    my $old_val;
+    $current_ref = $self->fetch( $ref_id );
+    my $curr_obj = _yoteobj( $current_ref );
+    $old_val = $curr_obj->get( $del_key );
+    $curr_obj->set( $del_key, undef );
+    $old_val;
+}
+
 sub set_path {
     my ($self, @path) = @_;
     if (@path < 2) {
@@ -749,7 +778,6 @@ sub _set_path {
     # always starts from root
     my $current_ref  =   $self->fetch_root;
     my $from_id      =   $self->root_id;
-
     while (my $key = shift @path) {
         my ($ref_id) = $self->_fetch_refid_or_val( $from_id, $key );
 
@@ -758,16 +786,13 @@ sub _set_path {
         # if there after the check, set the current from_id and loop again
         #
         die "encounterd non reference in path" unless $ref_id;
-        if ($ref_id) {
-            $from_id = $ref_id;
-            $current_ref = $self->fetch( $ref_id );
-            if (@path == 0 && $insert_key) {
-                my $curr_obj = _yoteobj( $current_ref );
-                $curr_obj->set( $insert_key, $set_value );
-                return $set_value;
-            }
-        }
+
+        $from_id = $ref_id;
     }
+    $current_ref = $self->fetch( $from_id );
+    my $curr_obj = _yoteobj( $current_ref );
+    $curr_obj->set( $insert_key, $set_value );
+    return $set_value;
 }
 
 
@@ -933,12 +958,18 @@ sub rollback_transaction {
     $self->{in_transaction} = 0;
 }
 
-sub fetch_obj_from_sql {
+sub obj_info {
     my ($self, $id) = @_;
-
     my ($handle,$class) = $self->query_line(
         "SELECT tablehandle, objectclass FROM ObjectIndex WHERE id=?",
         $id );
+    return $handle, $class;
+}
+
+sub fetch_obj_from_sql {
+    my ($self, $id) = @_;
+
+    my ($handle,$class) = $self->obj_info( $id );
 
     return undef unless $handle;
 

@@ -104,7 +104,7 @@ sub save_sql {
             join(',',  map { "$_=?" } @col_names ).
             " WHERE id=?";
         push @qparams, $id;
-    } 
+    }
     else {
         $sql = "INSERT INTO $table (".
             join(',', 'id', @col_names).") VALUES (".
