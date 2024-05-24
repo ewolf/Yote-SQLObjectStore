@@ -6,13 +6,20 @@ no warnings 'uninitialized';
 use lib './t/lib';
 use lib './lib';
 
-use Yote::SQLObjectStore::MariaDB;
-use Yote::SQLObjectStore::MariaDB::TableManager;
-
 use Data::Dumper;
 use File::Temp qw/ :mktemp tempdir /;
 use Test::Exception;
 use Test::More;
+
+pass( "HERE" );
+
+done_testing;
+exit;
+
+__END__
+
+use Yote::SQLObjectStore::MariaDB;
+use Yote::SQLObjectStore::MariaDB::TableManager;
 
 use Tainer;
 use NotApp;

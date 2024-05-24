@@ -116,7 +116,6 @@ sub get_table_manager {
 sub store_obj_data_to_sql {
     my ($self, $obj ) = @_;
 
-#    my ($id, $table, @queries) = $obj->save_sql;
     my (@queries) = $obj->save_sql;
     for my $q (@queries) {
         my ($update_obj_table_sql, @qparams) = @$q;
@@ -245,23 +244,28 @@ sub xform_in {
 sub xform_out {
     my ($self, $value, $def) = @_;
 
+    die "xform_out called without data definition" unless $def;
+
     if( $def !~ /^\*/ || $value == 0 ) {
         return $value;
     }
 
     # other option is a reference and the value is an id
+
     return $self->fetch( $value );
 }
 
 sub xform_in_full {
-    my ($self, $value, $type_def, $field) = @_;
+    my ($self, $value, $type_def) = @_;
+
+    die "xform_in_full called without data definition" unless $type_def;
 
     my $ref = ref( $value );
 
     # check if type is right
     my $field_value;
-    if ($type_def =~ /^\*/) {
-        die "incorrect type '$type_def'" unless $self->check_type( $value, $type_def );
+    if ($type_def =~ /^\*/ && $value) {
+        die "incorrect type '$type_def' for '$value'" unless $self->check_type( $value, $type_def );
         $field_value = $value->id;
     } else {
         $field_value = $value;
@@ -303,9 +307,8 @@ If not given an object, saves all objects marked dirty.
 
 sub save {
 
-print STDERR Data::Dumper->Dump(["SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVVVVVVVVVVVVVVVVVVVVE"]);
     my ($self,$obj) = @_;
-    my @dirty = $obj ? ([undef,$obj]) : values %{$self->{DIRTY}};
+    my @dirty = $obj ? ($obj) : values %{$self->{DIRTY}};
 
     # start transaction
     for my $item (@dirty) {
@@ -350,13 +353,14 @@ sub fetch_path {
     my ($self, $path) = @_;
     my @path = grep { $_ ne '' } split '/', $path;
     my $fetched = $self->fetch_root;
+
     while (my $segment = shift @path) {
         if ($segment =~ /(.*)\[(\d+)\]$/) { #list or list segment
             my ($list_name, $idx) = ($1, $2);
-            $fetched = ref($fetched) eq 'HASH' ? $fetched->{$list_name} : $fetched->get( $list_name );
-            $fetched = $fetched->[$idx];
+            $fetched = $fetched->get( $list_name );
+            $fetched = $fetched->get( $idx );
         } else {
-            $fetched = ref($fetched) eq 'HASH' ? $fetched->{$segment} : $fetched->get($segment);
+            $fetched = $fetched->get($segment);
         }
         last unless defined $fetched;
     }
@@ -397,6 +401,7 @@ Returns true if the object need saving.
 
 sub is_dirty {
     my ($self,$obj) = @_;
+
     return defined( $self->{DIRTY}{$obj->id} );
 }
 
@@ -458,12 +463,13 @@ sub insert_get_id {
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
+# print STDERR Data::Dumper->Dump([$query,\@qparams,"INSERT GET ID ($id)"]);
     return $id;
 }
 
 sub query_all {
     my ($self, $query, @qparams ) = @_;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
@@ -479,11 +485,11 @@ sub query_all {
 
 sub query_do {
     my ($self, $query, @qparams ) = @_;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
+        use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
         print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
         die $dbh->errstr;
     }
@@ -491,13 +497,10 @@ use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
     if (!defined $res) {
         die $sth->errstr;
     }
-    my $id = $dbh->last_insert_id;
-    return $id;
 }
 
 sub query_line {
     my ($self, $query, @qparams ) = @_;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"query line"]);
     my $sth = $self->sth( $query );
 
     my $res = $sth->execute( @qparams );
@@ -505,6 +508,9 @@ sub query_line {
         die $sth->errstr;
     }
     my @ret = $sth->fetchrow_array;
+
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,"query line"]);
+
     return @ret;
 }
 
@@ -515,7 +521,9 @@ sub apply_query_array {
     if (!defined $res) {
         die $sth->errstr;
     }
-    while ( my @arry = $sth->fetchrow_array ) {
+#print STDERR Data::Dumper->Dump([$query,$qparams,"apply query"]);
+    while ( my (@arry) = $sth->fetchrow_array ) {
+#print STDERR Data::Dumper->Dump([\@arry,"apply query result"]);
         $eachrow_fun->(@arry);
     }
 }
@@ -536,7 +544,6 @@ sub fetch_obj_from_sql {
 
             data           => {},
             type           => $handle,
-            data_type      => $handle,
             has_first_save => 1,
             key_size       => $1,
             store          => $self,
@@ -548,8 +555,7 @@ sub fetch_obj_from_sql {
         return Yote::SQLObjectStore::Array->new(
             ID             => $id,
 
-            data           => {},
-            data_type      => $handle,
+            data           => [],
             has_first_save => 1,
             store          => $self,
             table          => $self->get_table_manager->label_to_table($handle),
@@ -585,15 +591,3 @@ sub fetch_obj_from_sql {
 
 "BUUG";
 
-=head1 AUTHOR
-       Eric Wolf        coyocanid@gmail.com
-
-=head1 COPYRIGHT AND LICENSE
-
-       Copyright (c) 2012 - 2024 Eric Wolf. All rights reserved.  This program is free software; you can redistribute it and/or modify it
-       under the same terms as Perl itself.
-
-=head1 VERSION
-       Version 1.00  (Feb, 2024))
-
-=cut

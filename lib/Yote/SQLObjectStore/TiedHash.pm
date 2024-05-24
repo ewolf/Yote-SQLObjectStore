@@ -5,7 +5,7 @@ use warnings;
 
 sub TIEHASH {
     my( $pkg, $blessed_hash ) = @_;
-    my $data = $blessed_hash->{hash_ref};
+    my $data = $blessed_hash->{tied_hash};
     my $tied = bless { 
         id           => $blessed_hash->id,
         blessed_hash => $blessed_hash,
@@ -27,7 +27,7 @@ sub CLEAR {
     my $self = shift;
     my $data = $self->data;
     $self->blessed_hash->dirty if scalar( keys %$data );
-    %$data = ();
+    %$data = (map { $_ => undef } keys %$data);
 } #CLEAR
 
 sub DELETE {
@@ -38,6 +38,7 @@ sub DELETE {
     my $blessed_hash = $self->blessed_hash;
     $blessed_hash->dirty;
     my $oldval = delete $data->{$key};
+    delete $blessed_hash->data->{$key};
     return $blessed_hash->store->xform_out( $oldval, $blessed_hash->{value_type} );
 } #DELETE
 
@@ -61,6 +62,7 @@ sub STORE {
     no warnings 'uninitialized';
     ( $inval ne $oldval ) && $blessed_hash->dirty;
     $data->{$key} = $inval;
+    $blessed_hash->data->{$key} = $inval;
     return $val;
 } #STORE
 

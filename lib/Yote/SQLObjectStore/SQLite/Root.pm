@@ -8,7 +8,7 @@ use base 'Yote::SQLObjectStore::SQLite::Obj';
 
 sub _init {
     my $self = shift;
-print STDERR Data::Dumper->Dump([$self,"MEMEMEM"]);
+
     my $store = $self->store;
     $self->set_ref_hash( $store->new_hash('*HASH<256>_*') );
     $self->set_val_hash( $store->new_hash('*HASH<256>_VALUE') );

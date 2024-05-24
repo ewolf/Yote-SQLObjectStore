@@ -40,8 +40,8 @@ sub col_names {
 # the package path (most specific first)
 # plus any suffix parts
 sub table_name {
-    my ($me, @suffix) = @_;
-    my $pkg = ref($me) ? ref($me) : $me;
+    my ($self, @suffix) = @_;
+    my $pkg = ref($self);
     my (@parts) = reverse split /::/, $pkg;
     return join( "_", @parts, @suffix );
 }

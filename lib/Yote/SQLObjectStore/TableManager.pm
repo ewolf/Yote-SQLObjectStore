@@ -54,7 +54,7 @@ sub find_obj_packages {
     for my $dir (@INC) {
         next if $dir eq '.';
         # find the perl files in this directory
-print ">>CHECK>>$dir\n";
+#print STDERR ">>CHECK>>$dir\n";
         push @mods, $self->walk_for_perl( $base_obj_package, $seen_packages, $dir );
     }
     return @mods;
@@ -154,7 +154,6 @@ sub generate_array_table {
         );
 
     my $table_name = $self->label_to_table( $table_label );
-print STDERR Data::Dumper->Dump([$table_label,$table_name,"TANA"]);
     
     if ($field_type =~ /^\*(.*)/) {
         $alias_of = "*ARRAY_*";

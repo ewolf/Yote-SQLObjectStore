@@ -19,13 +19,12 @@ no warnings 'uninitialized';
 sub new {
     my ($pkg, %args) = @_;
 
-    my $data = $args{data} || {};
+    my $data = $args{data};
 
     return bless {
         ID             => $args{ID},
 
         data           => $data,
-        data_type      => $args{data_type} || '',
         has_first_save => $args{has_first_save} || 0,
         store          => $args{store},
         table          => $args{table},
@@ -65,15 +64,6 @@ sub data {
 
 sub store {
     return shift->{store};
-}
-
-sub data_type {
-    return shift->{data_type};
-}
-
-sub is_dirty {
-    my $self = shift;
-    $self->store->is_dirty( $self );
 }
 
 sub dirty {

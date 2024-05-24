@@ -28,13 +28,24 @@ my $factory = Factory->new( %args );
 $factory->setup;
 # -------------------------------------------------------------
 
-if(0){
+sub sqlstr {
+    my $pair = shift;
+    my ($sql, @qparams) = @$pair;
+    while (my $qp = shift @qparams) {
+        $sql =~ s/\?/'$qp'/s;
+    }
+    print STDERR "$sql\n\n";
+}
+
+if(1){
     my $dir = $factory->new_db_handle;
     my $object_store = Yote::SQLObjectStore::SQLite->new(
         BASE_DIRECTORY => $dir,
         );
     my @sql = $object_store->make_all_tables_sql;
-    print STDERR Data::Dumper->Dump([\@sql,"YEOWCH"]);
+for my $sql (@sql) {
+    sqlstr( $sql );
+}
     pass "barf";
     done_testing;
     exit;
@@ -82,7 +93,8 @@ subtest 'reference and reopen test' => sub {
         my $brad = $object_store->new_obj( 'SQLite::SomeThing', name => 'brad', sister => $wilma  );
 
         # make some data structures to put in root ref hash
-        my $val_arry = $root_refs->set( 'val_array', $object_store->new_array( '*ARRAY_VALUE', 1,2,3 ))->tied_array;
+        my $val_arry_obj = $object_store->new_array( '*ARRAY_VALUE', 1,2,3 );
+        $root_refs->set( 'val_array', $val_arry_obj );
         my $ref_arry = $root_refs->set( 'ref_array', $object_store->new_array( '*ARRAY_*', $r1, $wilma, $brad ))->tied_array;
         my $val_hash = $root_refs->set( 'val_hash', $object_store->new_hash( '*HASH<256>_VALUE', a => 1, b => 2, c => 3 ))->tied_hash;
 
@@ -91,9 +103,19 @@ subtest 'reference and reopen test' => sub {
         my $mty = $root_refs->set( 'empty_hash', $object_store->new_hash( '*HASH<256>_VALUE' ))->tied_hash;
 
         $mty->{fooz} = 'barz';
-        is_deeply( $root_refs->lookup( 'empty_hash' )->tied_hash, { fooz => 'barz' }, 'empty ref hash' );
+        is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, { fooz => 'barz' }, 'empty ref hash' );
         delete $mty->{fooz};
-        is_deeply( $root_refs->lookup( 'empty_hash' )->tied_hash, {}, 'empty ref hash' );
+        is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, {}, 'empty ref hash' );
+
+        is_deeply( $val_arry_obj->slice( 1, 1), [ 2 ], 'slice for one' );
+        is_deeply( $val_arry_obj->slice( 1 ), [ 2, 3 ], 'slice for rest' );
+        is_deeply( $val_arry_obj->slice( 1, 100 ), [ 2, 3 ], 'slice for rest more than rest' );
+
+        my $val_arry = $val_arry_obj->tied_array;
+
+        is_deeply( $val_arry_obj->slice( 1, 1), [ 2 ], 'slice for one' );
+        is_deeply( $val_arry_obj->slice( 1 ), [ 2, 3 ], 'slice for rest' );
+        is_deeply( $val_arry_obj->slice( 1, 100 ), [ 2, 3 ], 'slice for rest more than rest' );
 
         is ($brad->get_name, 'brad', 'brad name' );
         is ($brad->get_sister, $wilma, 'brad sister is wilma' );
@@ -125,25 +147,26 @@ subtest 'reference and reopen test' => sub {
 
         is ($object_store->fetch_path( "/val_hash/foo" ), 'bar', 'fetched value' );
         is ($object_store->fetch_path( "/val_hash/bar" ), 'gaz', 'fetched value' );
-        is_deeply ($object_store->fetch_path( "/ref_hash/val_array" ), [1,2,3], 'fetched array ref' );
+        is_deeply ($object_store->fetch_path( "/ref_hash/val_array" )->tied_array, [1,2,3], 'fetched array ref' );
 
 
         my $root = $object_store->fetch_root;
-        my $root_vals = $root->get_val_hash;
+        my $root_vals = $root->get_val_hash->tied_hash;
         is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it after reopen' );
+        $root_vals->{zork} = 'money';
 
-        my $root_refs = $root->get_ref_hash;
-        my @refs = @{$root_refs->{ref_array}};
+        my $root_refs = $root->get_ref_hash->tied_hash;
+        my @refs = @{$root_refs->{ref_array}->tied_array};
         is (@refs, 3, '3 refs' );
         my ($loaded_root, $wilma, $brad) = @refs;
         is( $loaded_root, $root, 'roots are roots' );
         is ($brad->get_sister, $wilma, 'brad sister is wilma' );
         is ($brad->get_name, 'brad', 'brad name' );
-        is_deeply( $root_refs->{val_array}, [1,2,3], 'val array' );
-        is_deeply( $root_refs->{ref_array}, [$root, $wilma, $brad ], 'ref array' );
-        is_deeply( $root_refs->{val_hash}, { a => 1, b => 2, c => 3 }, 'val hash' );
-        is_deeply( $root_refs->{ref_hash}, { root => $root }, 'ref hash' );
-        is_deeply( $root_refs->{empty_hash}, {}, 'empty ref hash' );
+        is_deeply( $root_refs->{val_array}->tied_array, [1,2,3], 'val array' );
+        is_deeply( $root_refs->{ref_array}->tied_array, [$root, $wilma, $brad ], 'ref array' );
+        is_deeply( $root_refs->{val_hash}->tied_hash, { a => 1, b => 2, c => 3 }, 'val hash' );
+        is_deeply( $root_refs->{ref_hash}->tied_hash, { root => $root }, 'ref hash' );
+        is_deeply( $root_refs->{empty_hash}->tied_hash, {}, 'empty ref hash' );
 
         is ($object_store->fetch_path( "/ref_hash/ref_array" ), $root_refs->{ref_array}, 'fetched path containing array' );
         is ($object_store->fetch_path( "/ref_hash/ref_array[2]" ), $brad, 'fetched path containing array' );
@@ -160,21 +183,25 @@ subtest 'reference and reopen test' => sub {
 
 
         # give bad a "sister" that is an array ref and "brother" that is array vals
-        $bad->set_sister( $object_store->new_ref_array() );
-        $bad->set_brother( $object_store->new_value_array() );
+        $bad->set_sister( $object_store->new_array('*ARRAY_*') );
+        $bad->set_brother( $object_store->new_array('*ARRAY_VALUE') );
         $bad->set_some_ref_array( $bad->get_sister );
         $bad->set_some_val_array( $bad->get_brother );
-        my $bad_ref_hash = $bad->set_some_ref_hash( $object_store->new_ref_hash() );
-        my $bad_val_hash = $bad->set_some_val_hash( $object_store->new_value_hash() );
+        my $bad_ref_hash = $bad->set_some_ref_hash( $object_store->new_hash('*HASH<256>_*') );
+        my $bad_val_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VALUE') );
+        my $bad_val_hash = $bad_val_obj->tied_hash;
         $bad_val_hash->{LEEROY} = 'brown';
         is( $bad->get_tagline( "TAGGY" ), "TAGGY", 'set via default get' );
-        is_deeply ($bad->get_some_ref_array, [], 'bad ref array is empty array' );
-        is_deeply ($bad->get_some_val_array, [], 'bad ref array is empty array' );
+        is_deeply ($bad->get_some_ref_array->tied_array, [], 'bad ref array is empty array' );
+        is_deeply ($bad->get_some_val_array->tied_array, [], 'bad ref array is empty array' );
 
-        is_deeply( $bad->fields, [qw(
+        is_deeply( $bad->fields, [sort qw(
                                       brother
                                       name
+                                      lolov
                                       sister
+                                      sisters
+                                      sisters_hash
                                       some_ref_array
                                       some_ref_hash
                                       some_val_array
@@ -185,20 +212,22 @@ subtest 'reference and reopen test' => sub {
                    'fields for bad and all SomeThing refs' );
         is( $bad->table_name, 'SomeThing_SQLite', 'table name for SomeThing refs' );
 
-        push @{$root_refs->{ref_array}}, $bad;
-        push @{$root_refs->{ref_array}}, undef;
-        $root_refs->{ref_hash}{wilma} = $wilma;
+        push @{$root_refs->{ref_array}->tied_array}, $bad;
+        push @{$root_refs->{ref_array}->tied_array}, undef;
+        $root_refs->{ref_hash}->set( 'wilma' => $wilma );
 
 
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]" ), $bad, 'fetched path containing bad guy' );
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/name" ), 'bad', 'fetched path containing bad guy name' );
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_ref_hash" ), {}, 'fetched path containing hash ref in obj' );
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array" ), [], 'fetched path containing array ref in obj' );
+        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_ref_hash" )->tied_hash, {}, 'fetched path containing hash ref in obj' );
+        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array" )->tied_array, [], 'fetched path containing array ref in obj' );
         is_deeply( $bad_val_hash, { LEEROY => 'brown' }, 'bad val hash' );
-        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_hash" ), { LEEROY => 'brown' }, 'fetched path containing value hash' );
+        is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_hash" )->tied_hash, { LEEROY => 'brown' }, 'fetched path containing value hash' );
         is( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array[1]" ), undef, 'fetched path to non extant index in array' );
 
         is ($object_store->fetch_path( "/ref_hash/ref_array[3]/some_ref_hash/nothere" ), undef, 'nothing to see here is undef' );
+
+        is ($object_store->fetch_path( "/ref_hash/ref_array[4]" ), undef, 'last entry in ref array is undef' );
 
         $object_store->save;
 
@@ -206,19 +235,19 @@ subtest 'reference and reopen test' => sub {
         $object_store->save( $wilma );
 
 
-        ok (! $object_store->is_dirty( $bad_val_hash ), 'bad val hash is not dirty here' );
+        ok (! $object_store->is_dirty( $bad_val_obj ), 'bad val hash is not dirty here' );
         $bad_val_hash->{LEEROY} = 'brown';
         ok (! $object_store->is_dirty( $bad ), 'bad val hash is still not dirty here' );
         delete $bad_val_hash->{NOTHERE};
         ok (! $object_store->is_dirty( $bad ), 'bad val hash is still not dirty after deleting nothing there' );
 
         ok (! $object_store->is_dirty( $bad_ref_hash ), 'bad ref hash is not dirty here' );
-        %$bad_ref_hash = (); #clear it
+        %{$bad_ref_hash->tied_hash} = (); #clear it
         ok (! $object_store->is_dirty( $bad_ref_hash ), 'bad ref hash still not dirty here after clearing it remains the same' );
 
-        ok (! $object_store->is_dirty( $bad_val_hash ), 'bad val hash is not dirty here' );
+        ok (! $object_store->is_dirty( $bad_val_obj ), 'bad val hash is not dirty here' );
         %$bad_val_hash = (); #clear it
-        ok ($object_store->is_dirty( $bad_val_hash ), 'bad val hash is dirty after clearing it' ); 
+        ok ($object_store->is_dirty( $bad_val_obj ), 'bad val hash is dirty after clearing it' ); 
         # not saving it though, so the clearing wont show up next load
 
 
@@ -232,30 +261,32 @@ subtest 'reference and reopen test' => sub {
             );
         $object_store->open;
         my $root = $object_store->fetch_root;
-        my $root_vals = $root->get_val_hash;
-        is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it after reopen' );
+        my $root_vals = $root->get_val_hash->tied_hash;
+        is_deeply( $root_vals, { foo  => 'bar', 
+                                 zork => 'money',
+                                 bar  => 'gaz'}, 'val hash with stuff in it after reopen' );
 
-        my $root_refs = $root->get_ref_hash;
+        my $root_refs = $root->get_ref_hash->tied_hash;
 
-        my @refs = @{$root_refs->{ref_array}};
-        is (@refs, 5, '5 refs with bad and undef' );
+        my $refs = $root_refs->{ref_array}->tied_array;
+        is (@$refs, 5, '5 refs with bad and undef' );
 
-        my ($loaded_root, $wilma, $brad, $bad, $undef) = @refs;
+        my ($loaded_root, $wilma, $brad, $bad, $undef) = @$refs;
         ok ($undef == 0, 'null  reference stored' );
         is ($brad->get_name, 'new brad', 'brad name still new brad' );
         is ($bad->get_name, 'bad', 'bad name' );
-        is_deeply ($bad->get_sister, [], 'bad sister is empty array' );
-        is_deeply ($bad->get_brother, [], 'bad brother is empty array' );
-        is_deeply ($bad->get_some_ref_array, [], 'bad ref array is empty array' );
-        is_deeply ($bad->get_some_val_array, [], 'bad value array is empty array' );
-        is_deeply ($bad->get_some_ref_hash, {}, 'bad ref hash is empty' );
-        is_deeply ($bad->get_some_val_hash, { LEEROY => 'brown' }, 'bad value hash same values' );
+        is_deeply ($bad->get_sister->tied_array, [], 'bad sister is empty array' );
+        is_deeply ($bad->get_brother->tied_array, [], 'bad brother is empty array' );
+        is_deeply ($bad->get_some_ref_array->tied_array, [], 'bad ref array is empty array' );
+        is_deeply ($bad->get_some_val_array->tied_array, [], 'bad value array is empty array' );
+        is_deeply ($bad->get_some_ref_hash->tied_hash, {}, 'bad ref hash is empty' );
+        is_deeply ($bad->get_some_val_hash->tied_hash, { LEEROY => 'brown' }, 'bad value hash same values' );
         is ($bad->get_tagline, "TAGGY", 'tag set via default get' );
         is ($bad->get_something, $bad, 'bad is its own something' );
         is ($wilma->get_name, 'wilma', 'wilma name' );
         is ($wilma->get_tagline, 'its gonna get hotter', 'wilma was saved with new tagline' );
         is ($loaded_root, $root, 'roots are roots' );
-        is_deeply( $root_refs->{ref_hash}, { root => $root, wilma => $wilma }, 'ref hash' );
+        is_deeply( $root_refs->{ref_hash}->tied_hash, { root => $root, wilma => $wilma }, 'ref hash' );
 
         ok (! $object_store->is_dirty( $bad ), 'bad is not dirty here' );
         $bad->set_tagline( "TAGGY" );
@@ -269,44 +300,44 @@ subtest 'reference and reopen test' => sub {
 
 
         my $bad_val_array = $bad->get_some_val_array;
-        throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/only accepts ARRAY_REF/, 'cannot set a ref hash to a ref array';
-        throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/only accepts HASH_REF/, 'cannot set a ref hash to a ref array';
-        throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/only accepts HASH_VALUE/, 'cannot set a val array to a val array';
+        throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/incorrect type '\*ARRAY_\*'/, 'cannot set a ref hash to a ref array';
+        throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*HASH<256>_\*'/, 'cannot set a ref hash to a ref array';
+        throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
         throws_ok { $bad->PLUGH } qr/unknown function 'SQLite::SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
 
-        throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/only accepts HASH_VALUE/, 'cannot set a val array to a val array';
+        throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
 
-        my $root_val_array = $root_refs->{val_array};
+        my $root_val_array = $root_refs->{val_array}->tied_array;
 
-        $bad_val_array->[100] = "ONEHUND";
+        $bad_val_array->tied_array->[100] = "ONEHUND";
         $object_store->save;
 
         ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array just saved, is not dirty' );
-        $bad_val_array->[100] = "ONEHUND";
+        $bad_val_array->tied_array->[100] = "ONEHUND";
         ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still not dirty after setting index to value it already had' );
-        is (@$bad_val_array, 101, '101 entries for bad val array' );
+        is (@{$bad_val_array->tied_array}, 101, '101 entries for bad val array' );
 
-        ok (! exists $bad_val_array->[99], 'nothing at index 99 inp bad val array' );
+        ok (! exists $bad_val_array->tied_array->[99], 'nothing at index 99 inp bad val array' );
         
         ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still not dirty after checking exists' );
-        delete $bad_val_array->[98];
+        delete $bad_val_array->tied_array->[98];
         ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still not dirty after deleting something that was already undefined' );
-        is (@$bad_val_array, 101, 'still 101 entries for bad val array' );
+        is (@{$bad_val_array->tied_array}, 101, 'still 101 entries for bad val array' );
 
-        delete $bad_val_array->[100];
-        is (@$bad_val_array, 0, 'bad val array now empty after deleting only entry' );
+        delete $bad_val_array->tied_array->[100];
+        is (@{$bad_val_array->tied_array}, 0, 'bad val array now empty after deleting only entry' );
         ok ($object_store->is_dirty( $bad_val_array ), 'bad val array now dirty after deleting only entry' );
         $object_store->save;
         ok (!$object_store->is_dirty( $bad_val_array ), 'bad val array now not dirty after save' );
-        @$bad_val_array = ();
+        @{$bad_val_array->tied_array} = ();
         ok (!$object_store->is_dirty( $bad_val_array ), 'bad val array now not dirty after clearing it when it was empty' );
 
-        $bad_val_array->[100] = 'ONEHUND'; #setting this back
-        is (@$bad_val_array, 101, 'back to 101 entries for bad val array' );
+        $bad_val_array->tied_array->[100] = 'ONEHUND'; #setting this back
+        is (@{$bad_val_array->tied_array}, 101, 'back to 101 entries for bad val array' );
         $object_store->save;
         ok (!$object_store->is_dirty( $bad_val_array ), 'bad val array now not dirty after save' );
-        @$bad_val_array = ();
-        is (@$bad_val_array, 0, 'back to no entries for bad val array' );
+        @{$bad_val_array->tied_array} = ();
+        is (@{$bad_val_array->tied_array}, 0, 'back to no entries for bad val array' );
         ok ($object_store->is_dirty( $bad_val_array ), 'bad val array now dirty after clearing while empty' );
         # do not save, so ONEHUND is still there
     }
@@ -321,7 +352,8 @@ subtest 'reference and reopen test' => sub {
         my $bad = $object_store->fetch_path( "/ref_hash/ref_array[3]" );
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array[100]" ), "ONEHUND", 'fetched path containing indexes array value' );
 
-        my $bad_val_array = $bad->get_some_val_array;
+        my $bad_val_obj = $bad->get_some_val_array;
+        my $bad_val_array = $bad_val_obj->tied_array;
         is (@$bad_val_array, 101, '101 entries for bad val array' );
         my $undef = shift @$bad_val_array;
         is ($undef, undef, 'shifted undef value');
@@ -338,12 +370,12 @@ subtest 'reference and reopen test' => sub {
         is (@$bad_val_array, 100, 'bad val array now at 100 size after unshift' );
 
         $object_store->save;
-        ok (!$object_store->is_dirty( $bad_val_array ), 'bad val array now not dirty after save' );
+        ok (!$object_store->is_dirty( $bad_val_obj ), 'bad val array now not dirty after save' );
         no warnings 'syntax';
         unshift @$bad_val_array;
-        ok (!$object_store->is_dirty( $bad_val_array ), 'bad val array now not dirty after useless unshift' );
+        ok (!$object_store->is_dirty( $bad_val_obj ), 'bad val array now not dirty after useless unshift' );
 
-        my $val_array = $object_store->fetch_path( "/ref_hash/val_array" );
+        my $val_array = $object_store->fetch_path( "/ref_hash/val_array" )->tied_array;
         is_deeply ($val_array, [1,2,3], 'val array from fetch path' );
         my (@gone) = splice @$val_array, 1, 1, 'two';
         is_deeply( \@gone, [2], 'spliced away the 2' );

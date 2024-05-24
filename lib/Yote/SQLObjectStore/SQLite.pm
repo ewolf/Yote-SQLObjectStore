@@ -9,6 +9,9 @@ use base 'Yote::SQLObjectStore::StoreBase';
 use Carp qw(confess);
 use DBI;
 
+use overload
+    '""' => sub { my $self = shift; "$self->{OPTIONS}{BASE_DIRECTORY}/SQLITE.db" };
+
 sub new {
     my ($pkg, %args ) = @_;
     $args{ROOT_PACKAGE} //= 'Yote::SQLObjectStore::SQLite::Root';
@@ -24,7 +27,7 @@ sub make_table_manager {
 sub connect_sql {
     my ($pkg,%args) = @_;
     
-    print  Data::Dumper->Dump([\%args]);
+#    print  Data::Dumper->Dump([\%args, "CONNECT SQL"]);
     my $file = "$args{BASE_DIRECTORY}/SQLITE.db";
     
     my $dbh = DBI->connect( "DBI:SQLite:dbname=$file", 
@@ -50,7 +53,7 @@ sub make_all_tables {
     $self->query_do( "BEGIN" );
     for my $s (@sql) {
         my ($query, @qparams) = @$s;
-        print STDERR "MAKING > $query\n";
+#        print STDERR "MAKING > $query\n";
         $self->query_do( $query, @qparams );
     }
     $self->query_do( "COMMIT" );
@@ -58,7 +61,8 @@ sub make_all_tables {
 
 sub check_type {
     my ($self, $value, $type_def) = @_;
-
+    
+    
     $value
         and
         $value->isa( 'Yote::SQLObjectStore::SQLite::Obj' ) ||

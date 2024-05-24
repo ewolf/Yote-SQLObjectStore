@@ -12,7 +12,7 @@ my $builder = Module::Build->new(
     dist_abstract      => 'Yote',
     create_makefile_pl => 'traditional',
     license            => 'perl',
-    module_name        => 'Yote::ObjectStore',
+    module_name        => 'Yote::SQLObjectStore::StoreBase',
     release_status     => 'stable',
     test_files         => [ 't/object_store_sqlite.t',
                             't/object_store_mariadb.t',

@@ -17,9 +17,11 @@ sub new {
     return $hash;
 }
 
-sub lookup {
+sub get {
     my ($self, $key) = @_;
-    $self->slice( $key )->{$key};
+    my $slice = $self->slice( $key );
+
+    $slice->{$key};
 }
 
 sub slice {
@@ -29,8 +31,9 @@ sub slice {
 
     my $value_type = $self->{value_type};
     my $store = $self->store;
-    if (my $hash_ref = $self->{hash_ref}) {
-        return { map { $_ => $store->xform_out( $hash_ref->{$_}, $value_type ) } @keys };
+
+    if (my $tied_hash = $self->{tied_hash}) {
+        return { map { $_ => $tied_hash->{$_} } @keys };
     }
 
     my $data = $self->data;
@@ -42,7 +45,7 @@ sub slice {
     my $table = $self->table;
 
     my $slice = {};
-    my $sql = "SELECT val FROM $table WHERE id=? AND (". join(' OR ', ('key=?') x @keys).")";
+    my $sql = "SELECT key,val FROM $table WHERE id=? AND (". join(' OR ', ('key=?') x @keys).")";
 
     $store->apply_query_array( $sql,
                                [$self->id, @keys],
@@ -61,8 +64,8 @@ sub set {
     unless (exists $data->{$key} && $data->{$key} ne $inval) {
         $self->dirty;
         $data->{$key} = $inval;
-        my $hash_ref = $self->{hash_ref};
-        $hash_ref && ($hash_ref->{$key} = $value);
+        my $tied_hash = $self->{tied_hash};
+        $tied_hash && ($tied_hash->{$key} = $value);
     }
     return $value;
 }
@@ -81,10 +84,10 @@ sub delete_key {
 sub tied_hash {
     my $self = shift;
     # load in hash ref from database
-    my $hash_ref = $self->{hash_ref};
-    return $hash_ref if $hash_ref;
+    my $tied_hash = $self->{tied_hash};
+    return $tied_hash if $tied_hash;
 
-    $hash_ref = $self->{hash_ref} = {};
+    $tied_hash = $self->{tied_hash} = {};
 
     my $data     = $self->{data};
     my $val_type = $self->{value_type};
@@ -93,7 +96,7 @@ sub tied_hash {
 
     if (!$self->has_first_save) {
         for my $key (keys %$data) {
-            $hash_ref->{$key} = $data->{$key};
+            $tied_hash->{$key} = $data->{$key};
         }
     }
     else {
@@ -105,13 +108,13 @@ sub tied_hash {
             sub {
                 my ($k, $v) = @_;
                 $data->{$k} = $v;
-                $hash_ref->{$k} = $store->xform_out( $v, $val_type );
+                $tied_hash->{$k} = $v;
             } );
     }
     
-    tie %$hash_ref, 'Yote::SQLObjectStore::TiedHash', $self;
+    tie %$tied_hash, 'Yote::SQLObjectStore::TiedHash', $self;
 
-    return $hash_ref;
+    return $tied_hash;
 }
 
 sub save_sql {
@@ -146,7 +149,7 @@ sub save_sql {
         }
         if (@insert_qparams) {
             my $sql = 
-                "INSERT INTO $table (id,key,val) VALUES " 
+                "INSERT OR REPLACE INTO $table (id,key,val) VALUES " 
                 .join( ',', ("(?,?,?)") x @insert_qparams);
             push @ret_sql, [$sql, map { @$_ } @insert_qparams];
         }
