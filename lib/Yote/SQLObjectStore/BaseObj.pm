@@ -81,7 +81,6 @@ sub save_sql {
         unshift @qparams, $id;
     }
     return [$sql, @qparams];
-#    return $id, $table, [$sql, @qparams];
 }
 
 sub set {

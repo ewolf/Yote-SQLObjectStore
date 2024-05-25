@@ -14,9 +14,6 @@ use Test::More;
 use Yote::SQLObjectStore::MariaDB;
 use Yote::SQLObjectStore::MariaDB::TableManager;
 
-use Tainer;
-use NotApp;
-
 sub sqlstr {
     my $pair = shift;
     my ($sql, @qparams) = @$pair;
@@ -91,8 +88,8 @@ subtest 'reference and reopen test' => sub {
         my $root_refs = $r1->get_ref_hash;
 
         # make some object too
-        my $wilma = $object_store->new_obj( 'SQLite::SomeThing', name => 'wilma' );
-        my $brad = $object_store->new_obj( 'SQLite::SomeThing', name => 'brad', sister => $wilma  );
+        my $wilma = $object_store->new_obj( 'MariaDB::SomeThing', name => 'wilma' );
+        my $brad = $object_store->new_obj( 'MariaDB::SomeThing', name => 'brad', sister => $wilma  );
 
         # make some data structures to put in root ref hash
         my $val_arry_obj = $object_store->new_array( '*ARRAY_VALUE', 1,2,3 );
@@ -179,7 +176,7 @@ subtest 'reference and reopen test' => sub {
         is ($brad->get_name, 'new brad', 'brad new name' );
         $object_store->save;
 
-        my $bad = $object_store->new_obj( 'SQLite::SomeThing', name => 'bad', sistery => $wilma  );
+        my $bad = $object_store->new_obj( 'MariaDB::SomeThing', name => 'bad', sistery => $wilma  );
         is ($bad->get_sister, undef, 'bad has no sister' );
         $bad->set_something( $bad );
         is ($bad->get_something, $bad, 'bad is its own something' );
@@ -213,7 +210,7 @@ subtest 'reference and reopen test' => sub {
                                       tagline
                                   )],
                    'fields for bad and all SomeThing refs' );
-        is( $bad->table_name, 'SomeThing_SQLite', 'table name for SomeThing refs' );
+        is( $bad->table_name, 'SomeThing_MariaDB', 'table name for SomeThing refs' );
 
         push @{$root_refs->{ref_array}->tied_array}, $bad;
         push @{$root_refs->{ref_array}->tied_array}, undef;
@@ -307,7 +304,7 @@ subtest 'reference and reopen test' => sub {
         throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/incorrect type '\*ARRAY_\*'/, 'cannot set a ref hash to a ref array';
         throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*HASH<256>_\*'/, 'cannot set a ref hash to a ref array';
         throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
-        throws_ok { $bad->PLUGH } qr/unknown function 'SQLite::SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
+        throws_ok { $bad->PLUGH } qr/unknown function 'MariaDB::SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
 
         throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
 

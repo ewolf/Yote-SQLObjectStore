@@ -57,6 +57,7 @@ sub find_obj_packages {
 #print STDERR ">>CHECK>>$dir\n";
         push @mods, $self->walk_for_perl( $base_obj_package, $seen_packages, $dir );
     }
+
     return @mods;
 }
 
@@ -238,6 +239,7 @@ sub generate_table_from_module {
         create_table_sql => $create_table_sql,
         column_defs      => $cols,
     };
+    $create_table_sql;
 }
 
 sub generate_tables_sql {
@@ -328,6 +330,7 @@ sub generate_tables_sql {
                 }
             } else {
                 # brand new table;
+print STDERR Data::Dumper->Dump([$create,"CREATY"]);
                 push @sql, [$create];
             }
             if ($needs_new_version) {

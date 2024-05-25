@@ -520,6 +520,7 @@ use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,longmess]
     }
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,"UNDH"]);
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;

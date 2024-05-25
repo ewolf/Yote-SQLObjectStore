@@ -14,9 +14,6 @@ use File::Temp qw/ :mktemp tempdir /;
 use Test::Exception;
 use Test::More;
 
-use Tainer;
-use NotApp;
-
 my $factory = Factory->new;
 
 $factory->setup;
