@@ -295,12 +295,12 @@ subtest 'reference and reopen test' => sub {
 
 
         my $bad_val_array = $bad->get_some_val_array;
-        throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/incorrect type '\*ARRAY_\*'/, 'cannot set a ref hash to a ref array';
-        throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*HASH<256>_\*'/, 'cannot set a ref hash to a ref array';
-        throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
+        throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_\*' for '\*ARRAY_\*'/, 'cannot set a ref hash to a ref array';
+        throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*ARRAY_\*' for '\*HASH<256>_\*'/, 'cannot set a ref hash to a ref array';
+        throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*ARRAY_VALUE' for '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
         throws_ok { $bad->PLUGH } qr/unknown function 'SQLite::SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
 
-        throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
+        throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_\*' for '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
 
         my $root_val_array = $root_refs->{val_array}->tied_array;
 

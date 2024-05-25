@@ -40,7 +40,6 @@ sub is_type {
     my $type = $self->{type};
 
     # if an anything reference, any reference type matches
-print STDERR Data::Dumper->Dump([$type,$expected_type,"CHECK"]);
     return 1 if $expected_type eq '*' && $type =~ /^\*/;
 
     return $type eq $expected_type;

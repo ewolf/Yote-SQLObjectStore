@@ -137,7 +137,7 @@ sub make_all_tables {
     $self->query_do( "BEGIN" );
     for my $s (@sql) {
         my ($query, @qparams) = @$s;
-        print STDERR "MAKING > $query\n";
+#        print STDERR "MAKING > $query\n";
         $self->query_do( $query, @qparams );
     }
     $self->query_do( "COMMIT" );
@@ -158,7 +158,7 @@ sub check_table {
     $self->query_do( "BEGIN" );
     for my $s (@sql) {
         my ($query, @qparams) = @$s;
-        print STDERR "MAKING > $query\n";
+#        print STDERR "MAKING > $query\n";
         $self->query_do( $query, @qparams );
     }
     $self->query_do( "COMMIT" );
@@ -295,7 +295,6 @@ sub xform_in_full {
     if ($type_def =~ /^\*/ && $value) {
         unless ($self->check_type( $value, $type_def )) {
             my $checked_type = ref $value && $value->{type};
-            print STDERR Data::Dumper->Dump(["incorrect type '$checked_type' for '$type_def'"]);
             die "incorrect type '$checked_type' for '$type_def'";
         }
         $field_value = $value->id;
