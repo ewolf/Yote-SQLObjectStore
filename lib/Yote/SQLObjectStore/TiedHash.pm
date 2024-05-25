@@ -3,13 +3,13 @@ package Yote::SQLObjectStore::TiedHash;
 use 5.16.0;
 use warnings;
 
+use Tie::Hash;
+
 sub TIEHASH {
     my( $pkg, $blessed_hash ) = @_;
-    my $data = $blessed_hash->{tied_hash};
     my $tied = bless { 
         id           => $blessed_hash->id,
         blessed_hash => $blessed_hash,
-        data         => { %$data }
     }, $pkg;
 
     return $tied;
@@ -19,57 +19,36 @@ sub blessed_hash {
     shift->{blessed_hash};
 }
 
-sub data {
-    shift->{data};
-}
-
 sub CLEAR {
     my $self = shift;
-    my $data = $self->data;
-    $self->blessed_hash->dirty if scalar( keys %$data );
-    %$data = (map { $_ => undef } keys %$data);
+    $self->blessed_hash->clear;
 } #CLEAR
 
 sub DELETE {
     my( $self, $key ) = @_;
-
-    my $data = $self->data;
-    return undef unless exists $data->{$key};
-    my $blessed_hash = $self->blessed_hash;
-    $blessed_hash->dirty;
-    my $oldval = delete $data->{$key};
-    delete $blessed_hash->data->{$key};
-    return $blessed_hash->store->xform_out( $oldval, $blessed_hash->{value_type} );
+    $self->blessed_hash->delete_key($key);
 } #DELETE
 
 
 sub EXISTS {
     my( $self, $key ) = @_;
-    return exists $self->data->{$key};
+    return exists $self->blessed_hash->data->{$key};
 } #EXISTS
 
 sub FETCH {
     my( $self, $key ) = @_;
-    return $self->blessed_hash->store->xform_out( $self->data->{$key}, $self->blessed_hash->{value_type} );
+    $self->blessed_hash->get($key);
 } #FETCH
 
 sub STORE {
     my( $self, $key, $val ) = @_;
-    my $data = $self->data;
-    my $oldval = $data->{$key};
-    my $blessed_hash = $self->blessed_hash;
-    my $inval = $blessed_hash->store->xform_in( $val, $blessed_hash->{value_type} );
-    no warnings 'uninitialized';
-    ( $inval ne $oldval ) && $blessed_hash->dirty;
-    $data->{$key} = $inval;
-    $blessed_hash->data->{$key} = $inval;
-    return $val;
+    $self->blessed_hash->set($key,$val);
 } #STORE
 
 sub FIRSTKEY {
     my $self = shift;
 
-    my $data = $self->data;
+    my $data = $self->blessed_hash->data;
     my $a = scalar keys %$data; #reset the each
     my( $k, $val ) = each %$data;
     return $k;
@@ -77,7 +56,7 @@ sub FIRSTKEY {
 
 sub NEXTKEY  {
     my $self = shift;
-    my $data = $self->data;
+    my $data = $self->blessed_hash->data;
     my( $k, $val ) = each %$data;
     return $k;
 } #NEXTKEY

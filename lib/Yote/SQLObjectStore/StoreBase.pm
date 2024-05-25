@@ -131,6 +131,18 @@ sub record_count {
     return $count;
 }
 
+sub make_all_tables {
+    my $self = shift;
+    my @sql = $self->make_all_tables_sql;
+    $self->query_do( "BEGIN" );
+    for my $s (@sql) {
+        my ($query, @qparams) = @$s;
+#        print STDERR "MAKING > $query\n";
+        $self->query_do( $query, @qparams );
+    }
+    $self->query_do( "COMMIT" );
+}
+
 sub new_obj($*@) {
     my ($self, $pkg, %args) = @_;
     my $package_file = $pkg;
@@ -234,25 +246,13 @@ sub new_array {
 }
 
 
+# given a thing and its type definition
+# return its internal value which will
+# either be an object id or a string value
 sub xform_in {
     my $self = shift;
     my $encoded = $self->xform_in_full(@_);
     return $encoded;
-}
-
-
-sub xform_out {
-    my ($self, $value, $def) = @_;
-
-    die "xform_out called without data definition" unless $def;
-
-    if( $def !~ /^\*/ || $value == 0 ) {
-        return $value;
-    }
-
-    # other option is a reference and the value is an id
-
-    return $self->fetch( $value );
 }
 
 sub xform_in_full {
@@ -274,6 +274,23 @@ sub xform_in_full {
     return $value, $field_value;
 }
 
+# given an internal value and definition
+# return the object or string value it represents
+# if it is a reference with a 0 id, return 0 indicating
+# not here
+sub xform_out {
+    my ($self, $value, $def) = @_;
+
+    die "xform_out called without data definition" unless $def;
+
+    if( $def !~ /^\*/ || $value == 0 ) {
+        return $value;
+    }
+
+    # other option is a reference and the value is an id
+
+    return $self->fetch( $value );
+}
 
 
 =head2 fetch_root()
@@ -437,7 +454,7 @@ sub dirty {
 sub next_id {
     my ($self, $table_name) = @_;
 
-    return $self->insert_get_id( "INSERT INTO ObjectIndex (tablehandle,live) VALUES(?,1)", $table_name );
+    return $self->insert_get_id( "INSERT INTO ObjectIndex (tablehandle,live) VALUES (?,1)", $table_name );
 }
 
 
@@ -489,14 +506,15 @@ sub query_do {
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
-        use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
-        print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,longmess]);
         die $dbh->errstr;
     }
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
         die $sth->errstr;
     }
+    my $id = $dbh->last_insert_id;
+    return $id;
 }
 
 sub query_line {
@@ -539,7 +557,7 @@ sub fetch_obj_from_sql {
     return undef unless $handle;
 
     if ($handle =~ /^\*HASH<(\d+)>_(.*)/) {
-        return Yote::SQLObjectStore::Hash->new(
+        my $hash = Yote::SQLObjectStore::Hash->new(
             ID             => $id,
 
             data           => {},
@@ -550,6 +568,8 @@ sub fetch_obj_from_sql {
             table          => $self->get_table_manager->label_to_table($handle),
             value_type     => $2,
             );
+        $hash->load_from_sql;
+        return $hash;
     }
     elsif ($handle =~ /^\*ARRAY_(.*)/) {
         return Yote::SQLObjectStore::Array->new(

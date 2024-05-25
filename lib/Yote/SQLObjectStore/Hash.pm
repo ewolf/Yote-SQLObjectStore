@@ -32,20 +32,22 @@ sub slice {
     my $value_type = $self->{value_type};
     my $store = $self->store;
 
-    if (my $tied_hash = $self->{tied_hash}) {
-        return { map { $_ => $tied_hash->{$_} } @keys };
+    if (my $data = $self->{data}) {
+#print STDERR Data::Dumper->Dump([ { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys }, "SLUICER"]);
+        return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
     }
 
     my $data = $self->data;
     if (!$self->has_first_save) {
         # if this has not had its first save, use the data hash rather than the table
+#print STDERR Data::Dumper->Dump([{ map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys },"SLUICER2"]);
         return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
     }
 
     my $table = $self->table;
 
     my $slice = {};
-    my $sql = "SELECT key,val FROM $table WHERE id=? AND (". join(' OR ', ('key=?') x @keys).")";
+    my $sql = "SELECT hashkey,val FROM $table WHERE id=? AND (". join(' OR ', ('hashkey=?') x @keys).")";
 
     $store->apply_query_array( $sql,
                                [$self->id, @keys],
@@ -54,18 +56,26 @@ sub slice {
                                    # if the key exists in the data, it may mean that there is an override here
                                    $slice->{$k} = $store->xform_out( exists $data->{$k} ? $data->{$k} : $v, $value_type );
                                } );
+#print STDERR Data::Dumper->Dump([$slice,"SLUICER3"]);
     return $slice;
+}
+
+sub clear {
+    my ($self) = @_;
+    my $data = $self->data;
+    if (scalar(keys %$data)) {
+        $self->dirty;
+    }
+    %$data = ();
 }
 
 sub set {
     my ($self, $key, $value) = @_;
     my $data = $self->data;
     my $inval = $self->store->xform_in( $value, $self->{value_type} );
-    unless (exists $data->{$key} && $data->{$key} ne $inval) {
+    unless (exists $data->{$key} && $data->{$key} eq $inval) {
         $self->dirty;
         $data->{$key} = $inval;
-        my $tied_hash = $self->{tied_hash};
-        $tied_hash && ($tied_hash->{$key} = $value);
     }
     return $value;
 }
@@ -74,11 +84,13 @@ sub delete_key {
     my ($self, $key) = @_;
     my $data = $self->data;
     return undef unless exists $data->{$key};
-    
-    my $val = $data->{$key};
-    $data->{$key} = undef; #set as undef so it will be delete in the db
-    $self->dirty;
-    return $self->store->xform_out( $val, $self->{value_type} );
+
+    if (exists $data->{$key}) {
+        my $val = $data->{$key};
+        $data->{$key} = undef; #set as undef so it will be delete in the db
+        $self->dirty if defined $val;
+        return $self->store->xform_out( $val, $self->{value_type} );
+    }
 }
 
 sub tied_hash {
@@ -89,32 +101,25 @@ sub tied_hash {
 
     $tied_hash = $self->{tied_hash} = {};
 
-    my $data     = $self->{data};
-    my $val_type = $self->{value_type};
-    my $store    = $self->store;
-    my $table    = $self->{table};
-
-    if (!$self->has_first_save) {
-        for my $key (keys %$data) {
-            $tied_hash->{$key} = $data->{$key};
-        }
-    }
-    else {
-        # load entire hash from db
-
-        $store->apply_query_array(
-            "SELECT key,val FROM $table WHERE id=?",
-            [$self->id],
-            sub {
-                my ($k, $v) = @_;
-                $data->{$k} = $v;
-                $tied_hash->{$k} = $v;
-            } );
-    }
-    
     tie %$tied_hash, 'Yote::SQLObjectStore::TiedHash', $self;
 
     return $tied_hash;
+}
+
+sub load_from_sql {
+    my $self = shift;
+
+    my $data     = $self->{data};
+    my $store    = $self->store;
+    my $table    = $self->{table};
+
+    $store->apply_query_array(
+        "SELECT hashkey,val FROM $table WHERE id=?",
+        [$self->id],
+        sub {
+            my ($k, $v) = @_;
+            $data->{$k} = $v;
+        } );
 }
 
 sub save_sql {
@@ -143,13 +148,13 @@ sub save_sql {
         if (@delete_qparams) {
             my $sql = 
                 "DELETE FROM $table WHERE id=? AND (".
-                join( ' OR ', ('key=?') x @delete_qparams ) .")";
+                join( ' OR ', ('hashkey=?') x @delete_qparams ) .")";
             push @ret_sql, [ $sql, $id, @delete_qparams ];
             
         }
         if (@insert_qparams) {
             my $sql = 
-                "INSERT OR REPLACE INTO $table (id,key,val) VALUES " 
+                "INSERT OR REPLACE INTO $table (id,hashkey,val) VALUES " 
                 .join( ',', ("(?,?,?)") x @insert_qparams);
             push @ret_sql, [$sql, map { @$_ } @insert_qparams];
         }

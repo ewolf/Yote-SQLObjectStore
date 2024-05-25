@@ -17,13 +17,7 @@ use Test::More;
 use Tainer;
 use NotApp;
 
-my %args = (
-    user     => 'wolf',
-    password => 'B00gerzaais',
-    host     => 'localhost',
-    port     => 3306,
-    );
-my $factory = Factory->new( %args );
+my $factory = Factory->new;
 
 $factory->setup;
 # -------------------------------------------------------------
@@ -37,22 +31,22 @@ sub sqlstr {
     print STDERR "$sql\n\n";
 }
 
-if(1){
-    my $dir = $factory->new_db_handle;
+if(0){
+    my $dir = $factory->new_db_name;
     my $object_store = Yote::SQLObjectStore::SQLite->new(
         BASE_DIRECTORY => $dir,
         );
     my @sql = $object_store->make_all_tables_sql;
-for my $sql (@sql) {
-    sqlstr( $sql );
-}
+    for my $sql (@sql) {
+        sqlstr( $sql );
+    }
     pass "barf";
     done_testing;
     exit;
 }
 
 subtest 'reference and reopen test' => sub {
-    my $dir = $factory->new_db_handle;
+    my $dir = $factory->new_db_name;
 
     {
         my $object_store = Yote::SQLObjectStore::SQLite->new(
@@ -82,8 +76,11 @@ subtest 'reference and reopen test' => sub {
 
         $root_vals->set( 'foo', 'bar' );
         $root_vals->set( 'bar', 'gaz' );
+        $root_vals_hash->{fit} = "to be tied";
 
-        is_deeply( $root_vals_hash, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it' );
+        is_deeply( $root_vals_hash, { foo => 'bar', 
+                                      fit => 'to be tied',
+                                      bar => 'gaz'}, 'val hash with stuff in it' );
 
         # now gotta get stuff in the ref, like a [], {} and obj
         my $root_refs = $r1->get_ref_hash;
@@ -105,7 +102,7 @@ subtest 'reference and reopen test' => sub {
         $mty->{fooz} = 'barz';
         is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, { fooz => 'barz' }, 'empty ref hash' );
         delete $mty->{fooz};
-        is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, {}, 'empty ref hash' );
+        is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, { fooz => undef }, 'fooz has been set to undef for db deletion' );
 
         is_deeply( $val_arry_obj->slice( 1, 1), [ 2 ], 'slice for one' );
         is_deeply( $val_arry_obj->slice( 1 ), [ 2, 3 ], 'slice for rest' );
@@ -123,7 +120,7 @@ subtest 'reference and reopen test' => sub {
         is_deeply( $ref_hash, { root => $r1 }, 'ref hash' );
         is_deeply( $val_arry, [1,2,3], 'val array' );
         is_deeply( $ref_arry, [$r1, $wilma, $brad ], 'ref array' );
-        is_deeply( $mty, {}, 'empty ref hash' );
+        is_deeply( $mty, { fooz => undef }, 'ref hash with one undef value' );
 
         # data now looks like this
         #   /val_hash/foo -> bar
@@ -144,7 +141,6 @@ subtest 'reference and reopen test' => sub {
             );
         $object_store->open;
 
-
         is ($object_store->fetch_path( "/val_hash/foo" ), 'bar', 'fetched value' );
         is ($object_store->fetch_path( "/val_hash/bar" ), 'gaz', 'fetched value' );
         is_deeply ($object_store->fetch_path( "/ref_hash/val_array" )->tied_array, [1,2,3], 'fetched array ref' );
@@ -152,7 +148,9 @@ subtest 'reference and reopen test' => sub {
 
         my $root = $object_store->fetch_root;
         my $root_vals = $root->get_val_hash->tied_hash;
-        is_deeply( $root_vals, { foo => 'bar', bar => 'gaz'}, 'val hash with stuff in it after reopen' );
+        is_deeply( $root_vals, { foo => 'bar', 
+                                 fit => 'to be tied',
+                                 bar => 'gaz'}, 'val hash with stuff in it after reopen' );
         $root_vals->{zork} = 'money';
 
         my $root_refs = $root->get_ref_hash->tied_hash;
@@ -188,8 +186,8 @@ subtest 'reference and reopen test' => sub {
         $bad->set_some_ref_array( $bad->get_sister );
         $bad->set_some_val_array( $bad->get_brother );
         my $bad_ref_hash = $bad->set_some_ref_hash( $object_store->new_hash('*HASH<256>_*') );
-        my $bad_val_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VALUE') );
-        my $bad_val_hash = $bad_val_obj->tied_hash;
+        my $bad_val_hash_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VALUE') );
+        my $bad_val_hash = $bad_val_hash_obj->tied_hash;
         $bad_val_hash->{LEEROY} = 'brown';
         is( $bad->get_tagline( "TAGGY" ), "TAGGY", 'set via default get' );
         is_deeply ($bad->get_some_ref_array->tied_array, [], 'bad ref array is empty array' );
@@ -234,20 +232,19 @@ subtest 'reference and reopen test' => sub {
         $wilma->set_tagline( "its gonna get hotter" );
         $object_store->save( $wilma );
 
-
-        ok (! $object_store->is_dirty( $bad_val_obj ), 'bad val hash is not dirty here' );
+        ok (! $object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is not dirty here' );
         $bad_val_hash->{LEEROY} = 'brown';
-        ok (! $object_store->is_dirty( $bad ), 'bad val hash is still not dirty here' );
+        ok (! $object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is still not dirty here' );
         delete $bad_val_hash->{NOTHERE};
-        ok (! $object_store->is_dirty( $bad ), 'bad val hash is still not dirty after deleting nothing there' );
+        ok (! $object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is still not dirty after deleting nothing there' );
 
         ok (! $object_store->is_dirty( $bad_ref_hash ), 'bad ref hash is not dirty here' );
         %{$bad_ref_hash->tied_hash} = (); #clear it
         ok (! $object_store->is_dirty( $bad_ref_hash ), 'bad ref hash still not dirty here after clearing it remains the same' );
 
-        ok (! $object_store->is_dirty( $bad_val_obj ), 'bad val hash is not dirty here' );
+        ok (! $object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is not dirty here' );
         %$bad_val_hash = (); #clear it
-        ok ($object_store->is_dirty( $bad_val_obj ), 'bad val hash is dirty after clearing it' ); 
+        ok ($object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is dirty after clearing it' ); 
         # not saving it though, so the clearing wont show up next load
 
 
@@ -264,6 +261,7 @@ subtest 'reference and reopen test' => sub {
         my $root_vals = $root->get_val_hash->tied_hash;
         is_deeply( $root_vals, { foo  => 'bar', 
                                  zork => 'money',
+                                 fit => 'to be tied',
                                  bar  => 'gaz'}, 'val hash with stuff in it after reopen' );
 
         my $root_refs = $root->get_ref_hash->tied_hash;
@@ -352,8 +350,8 @@ subtest 'reference and reopen test' => sub {
         my $bad = $object_store->fetch_path( "/ref_hash/ref_array[3]" );
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array[100]" ), "ONEHUND", 'fetched path containing indexes array value' );
 
-        my $bad_val_obj = $bad->get_some_val_array;
-        my $bad_val_array = $bad_val_obj->tied_array;
+        my $bad_val_hash_obj = $bad->get_some_val_array;
+        my $bad_val_array = $bad_val_hash_obj->tied_array;
         is (@$bad_val_array, 101, '101 entries for bad val array' );
         my $undef = shift @$bad_val_array;
         is ($undef, undef, 'shifted undef value');
@@ -370,10 +368,10 @@ subtest 'reference and reopen test' => sub {
         is (@$bad_val_array, 100, 'bad val array now at 100 size after unshift' );
 
         $object_store->save;
-        ok (!$object_store->is_dirty( $bad_val_obj ), 'bad val array now not dirty after save' );
+        ok (!$object_store->is_dirty( $bad_val_hash_obj ), 'bad val array now not dirty after save' );
         no warnings 'syntax';
         unshift @$bad_val_array;
-        ok (!$object_store->is_dirty( $bad_val_obj ), 'bad val array now not dirty after useless unshift' );
+        ok (!$object_store->is_dirty( $bad_val_hash_obj ), 'bad val array now not dirty after useless unshift' );
 
         my $val_array = $object_store->fetch_path( "/ref_hash/val_array" )->tied_array;
         is_deeply ($val_array, [1,2,3], 'val array from fetch path' );
@@ -389,11 +387,12 @@ subtest 'reference and reopen test' => sub {
 };
 
 done_testing;
+
+$factory->teardown;
 exit;
 
 package Factory;
 
-use Yote::RecordStore;
 use File::Temp qw/ :mktemp tempdir /;
 
 sub new_db_name {
@@ -404,16 +403,9 @@ sub new_db_name {
 
 sub new {
     my ($pkg, %args) = @_;
-    return bless { args => {%args}, dbnames => {} }, $pkg;
+    return bless { args => {%args} }, $pkg;
 }
 
-sub new_db_handle {
-    my ($self) = @_;
-
-    # make a test db
-    my $dir = $self->{args}{directory} = $self->new_db_name;
-    return $dir;
-}
 sub teardown {
     my $self = shift;
 }

@@ -67,13 +67,16 @@ sub label_to_table {
         if ($val_type =~ /^\*/) {
             return "HASH_${key_size}_REF";
         }
+        $val_type =~ s/[()]/_/g;
         return "HASH_${key_size}_$val_type";
     }
     elsif ($label =~ /^\*ARRAY_\*/) {
         return "ARRAY_REF";
     }
-    elsif ($label =~ /^\*(ARRAY_.*)/) {
-        return $1;
+    elsif ($label =~ /^\*ARRAY_(.*)/) {
+        my $array_type = $1;
+        $array_type =~ s/[()]/_/g;
+        return "ARRAY_$array_type";
     }
     return $label;
 }
@@ -91,7 +94,7 @@ sub generate_hash_table {
 
     my @column_sql = ( 
         "id BIGINT UNSIGNED",
-        "key VARCHAR($key_size)",
+        "hashkey VARCHAR($key_size)",
         );
 
     my $table_name = $self->label_to_table( $table_label );
@@ -108,7 +111,7 @@ sub generate_hash_table {
         field_type   => $field_type, #maybe yes, maybe no
     };
 
-    push @column_sql, "UNIQUE (id,key)";
+    push @column_sql, "UNIQUE (id,hashkey)";
     my $create_table_sql = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';    
     #
@@ -210,7 +213,7 @@ sub generate_table_from_module {
         die "unable to load module '$mod'";
     }
 
-    my @column_sql = ( "id BIGINT PRIMARY KEY" );
+    my @column_sql = ( "id BIGINT UNSIGNED PRIMARY KEY" );
     my %column_defs;
 
     my $cols = $mod->cols;
@@ -262,14 +265,14 @@ sub generate_tables_sql {
             my $version;
             my $needs_new_version = 1;
 
-            my ($has_tables) = $store->query_line( "SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'TableVersions'" );
+            my ($has_tables) = $store->has_table('TableVersions');
             if ($has_tables) {
-                my ($count) = $store->query_line( "SELECT COUNT(*) FROM TableVersions WHERE name=? AND create=?", $table_name, $create );
+                my ($count) = $store->query_line( "SELECT COUNT(*) FROM TableVersions WHERE name=? AND create_table=?", $table_name, $create );
                 if ($count > 0) {
                     $needs_new_version = 0;
                 } else {
                     ($version) = $store->query_line( "SELECT MAX(version) FROM TableVersions WHERE name=?", $table_name );
-                    my ($old_table) = $store->query_line( "SELECT create FROM TableVersions WHERE name=? AND version=?", $table_name, $version );
+                    my ($old_table) = $store->query_line( "SELECT create_table FROM TableVersions WHERE name=? AND version=?", $table_name, $version );
                     if ($old_table) {
                         
                         # extract and compare the columns
@@ -331,7 +334,7 @@ sub generate_tables_sql {
                 $version = 1 + ($version // 0);
                 push @sql, ["INSERT INTO TableVersions (name,version,create_table) VALUES (?,?,?)",
                             $table_name, $version, $create ];
-                push @sql, ["INSERT OR IGNORE INTO TableDefs (name,version) VALUES (?,?)", $table_name, $version ];
+                push @sql, ["INSERT IGNORE INTO TableDefs (name,version) VALUES (?,?)", $table_name, $version ];
             }
         }
     }

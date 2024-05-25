@@ -1,0 +1,21 @@
+package Yote::SQLObjectStore::MariaDB::Root;
+
+use 5.16.0;
+
+use warnings;
+
+use base 'Yote::SQLObjectStore::MariaDB::Obj';
+
+sub _init {
+    my $self = shift;
+
+    my $store = $self->store;
+    $self->set_ref_hash( $store->new_hash('*HASH<256>_*') );
+    $self->set_val_hash( $store->new_hash('*HASH<256>_VARCHAR(2000)') );
+}
+
+# simply has a reference hash and a value hash
+our %cols = (
+    ref_hash => '*HASH<256>_*',
+    val_hash => '*HASH<256>_VARCHAR(2000)',
+);

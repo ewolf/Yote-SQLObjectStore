@@ -24,6 +24,7 @@ sub make_table_manager {
     $self->{TABLE_MANAGER} = Yote::SQLObjectStore::SQLite::TableManager->new( $self );
 }
 
+
 sub connect_sql {
     my ($pkg,%args) = @_;
     
@@ -40,6 +41,9 @@ sub connect_sql {
     
 }
 
+# given a thing and its type definition
+# return it and its internal value which will
+# either be an object id or a string value
 sub make_all_tables_sql {
     my $self = shift;
     my $manager = $self->get_table_manager;
@@ -47,21 +51,8 @@ sub make_all_tables_sql {
     return @sql;
 }
 
-sub make_all_tables {
-    my $self = shift;
-    my @sql = $self->make_all_tables_sql;
-    $self->query_do( "BEGIN" );
-    for my $s (@sql) {
-        my ($query, @qparams) = @$s;
-#        print STDERR "MAKING > $query\n";
-        $self->query_do( $query, @qparams );
-    }
-    $self->query_do( "COMMIT" );
-}
-
 sub check_type {
     my ($self, $value, $type_def) = @_;
-    
     
     $value
         and
@@ -70,6 +61,12 @@ sub check_type {
         $value->isa( 'Yote::SQLObjectStore::Hash' ) 
         and
         $value->is_type( $type_def );
+}
+
+sub has_table {
+    my ($self, $table_name) = @_;
+    my ($has_table) = $self->query_line( "SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'TableVersions'" );
+    return $has_table;
 }
 
 1;

@@ -23,6 +23,17 @@ sub change_column {
         "ALTER TABLE $table_name DROP COLUMN ${column_name}_mv";
 }
 
+sub generate_tables_sql {
+    my ($self, $base_obj_package) = @_;
+    my @sql = $self->SUPER::generate_tables_sql( $base_obj_package );
+    for my $sqlist (@sql) {
+        for my $sql (@$sqlist) {
+            $sql =~ s/^INSERT IGNORE/INSERT OR IGNORE/;
+        }
+    }
+    return @sql;
+}
+
 sub archive_column {
     my ($self, $table_name, $column_name) = @_;
     "ALTER TABLE $table_name RENAME COLUMN $column_name ${column_name}_DELETED",
