@@ -5,50 +5,143 @@ use warnings;
 
 use Tie::Hash;
 
+sub tie {
+    my( $pkg, $store, $id, $handle ) = @_;
+
+    my ($key_size, $value_type) = ($handle =~ /^\*HASH<(\d+)>_(.*)/);
+    
+    my $table = $store->get_table_manager->label_to_table($handle);
+      
+    my %data;
+    $store->apply_query_array(
+        "SELECT hashkey,val FROM $table WHERE id=?",
+        [$id],
+        sub {
+            my ($k, $v) = @_;
+            $data{$k} = $v;
+        } );
+    
+    my $hash = {};
+    tie %$hash, 'Yote::SQLObjectStore::TiedHash', $store, $id, $key_size, $handle, $table, $value_type, $hash, %data;
+    return $hash;
+}
+
+sub is_type {
+    my ($self, $expected_type) = @_;
+    my $type = $self->{type};
+
+    # if an anything reference, any reference type matches
+    return 1 if $expected_type eq '*';
+
+    return $type eq $expected_type;
+}
+
+sub save_sql {
+    my $self = shift;
+    my $id = $self->id;
+    print STDERR Data::Dumper->Dump(["GOT SAVE SQL"]);
+    #
+    # just going to remove the old values and enter the new ones in
+    # but may optimize in the future. using the tied hash assumes that
+    # there is not a great amount of data here
+    #
+
+    my @ret_sql;
+
+    my $table = $self->{table};
+    
+    my $del_sql = "DELETE FROM $table WHERE id=?";
+    push @ret_sql, [ $del_sql, $id ];
+
+    my $data = $self->{data};
+    my @fields = keys %$data;
+    my @insert_qparams = map { [$id, $_, $data->{$_}] } @fields;
+    if (@insert_qparams) {
+        my $store = $self->store;
+        my $sql = 
+            $store->insert_or_replace." INTO $table (id,hashkey,val) VALUES " 
+            .join( ',', ("(?,?,?)") x @insert_qparams);
+        push @ret_sql, [$sql, map { @$_ } @insert_qparams];
+    }
+    return @ret_sql;
+}
+
 sub TIEHASH {
-    my( $pkg, $blessed_hash ) = @_;
+    my( $pkg, $store, $id, $key_size, $handle, $table, $value_type, $tied_ref, %data ) = @_;
     my $tied = bless { 
-        id           => $blessed_hash->id,
-        blessed_hash => $blessed_hash,
+        id         => $id,
+        data       => {%data},
+        key_size   => $key_size,
+        store      => $store,
+        table      => $table,
+        type       => $handle,
+        tied_ref   => $tied_ref,
+        value_type => $value_type,
     }, $pkg;
 
     return $tied;
 } #TIEHASH
 
-sub blessed_hash {
-    shift->{blessed_hash};
+sub id {
+    shift->{id};
 }
+
+# returns tied data structure for caching
+sub cache_obj {
+    shift->{tied_ref};
+}
+
+
+sub _dirty {
+    my $self = shift;
+    $self->{store}->dirty( $self );
+} #_dirty
+
 
 sub CLEAR {
     my $self = shift;
-    $self->blessed_hash->clear;
+    my $data = $self->{data};
+    $self->_dirty if scalar( keys %$data );
+    %$data = ();
 } #CLEAR
 
 sub DELETE {
     my( $self, $key ) = @_;
-    $self->blessed_hash->delete_key($key);
+    my $data = $self->{data};
+    return undef unless exists $data->{$key};
+    $self->_dirty;
+    my $oldval = delete $data->{$key};
+    return $self->{store}->xform_out( $oldval, $self->{value_type} );
 } #DELETE
 
 
 sub EXISTS {
     my( $self, $key ) = @_;
-    return exists $self->blessed_hash->data->{$key};
+    return exists $self->{data}{$key};
 } #EXISTS
 
 sub FETCH {
     my( $self, $key ) = @_;
-    $self->blessed_hash->get($key);
+    return $self->{store}->xform_out( $self->{data}{$key}, $self->{value_type} );
 } #FETCH
 
 sub STORE {
     my( $self, $key, $val ) = @_;
-    $self->blessed_hash->set($key,$val);
+
+    my $data = $self->{data};
+    my $inval = $self->{store}->xform_in( $val, $self->{value_type} );
+    no warnings 'uninitialized';
+    unless (exists $data->{$key} && $data->{$key} eq $inval) {
+        $self->dirty;
+        $data->{$key} = $inval;
+    }
+    return $val;
 } #STORE
 
 sub FIRSTKEY {
     my $self = shift;
 
-    my $data = $self->blessed_hash->data;
+    my $data = $self->{data};
     my $a = scalar keys %$data; #reset the each
     my( $k, $val ) = each %$data;
     return $k;
@@ -56,7 +149,7 @@ sub FIRSTKEY {
 
 sub NEXTKEY  {
     my $self = shift;
-    my $data = $self->blessed_hash->data;
+    my $data = $self->{data};
     my( $k, $val ) = each %$data;
     return $k;
 } #NEXTKEY

@@ -5,13 +5,16 @@ use warnings;
 
 no warnings 'uninitialized';
 
-use Yote::SQLObjectStore::Array;
-use Yote::SQLObjectStore::Hash;
+use Yote::SQLObjectStore::TiedArray;
+use Yote::SQLObjectStore::TiedHash;
+
+use Yote::SQLObjectStore::LookupArray;
+use Yote::SQLObjectStore::LookupHash;
 
 warn "Yote::Locker needs to be a service somewhere";
 use Yote::Locker;
 
-use Scalar::Util qw(weaken);
+use Scalar::Util qw(weaken blessed);
 use Time::HiRes qw(time);
 
 use vars qw($VERSION);
@@ -185,7 +188,7 @@ sub new_obj($*@) {
         table => $table,
         type  => "*$pkg",
         
-        %args );
+        );
 
     $self->weak( $obj );
     $self->dirty( $obj );
@@ -205,71 +208,76 @@ sub new_obj($*@) {
     return $obj;
 }
 
-sub new_hash {
+sub new_lookup_hash {
     my ($self, $type, %args) = @_;
 
-    my ($key_size, $value_type) = ($type =~ /^\*HASH<(\d+)>_(.*)/);
+    my ($value_type) = ($type =~ /^\^HASH<\d+>_(.*)/);
+
+    # the check here before creating a new id
+    die "Cannot create hash of type '$type'" unless $value_type;
+
+    my $id = $self->next_id( $type );
+
+    my $lookup_hash = Yote::SQLObjectStore::LookupHash->ready( $self, $id, $type );
+    $self->weak( $lookup_hash );
+    $self->dirty( $lookup_hash );
+
+    return $lookup_hash;
+}
+
+sub new_tied_hash {
+    my ($self, $type, %args) = @_;
+
+    my ($value_type) = ($type =~ /^\*HASH<\d+>_(.*)/);
 
     die "Cannot create hash of type '$type'" unless $value_type;
 
     my $id = $self->next_id( $type );
 
-    my $data = {};
-
-    $self->check_table($type);
-    my $table = $self->get_table_manager->label_to_table($type);
-
-    my $hash = Yote::SQLObjectStore::Hash->new(
-        ID         => $id,
-        
-        data       => $data,
-        key_size   => $key_size,
-        store      => $self,
-        table      => $table,
-        type       => $type,
-        value_type => $value_type,
-        );
-
-    $self->weak( $hash );
-    $self->dirty( $hash );
-
-    for my $input_field (keys %args) {
-        $data->{$input_field} = $self->xform_in( $args{$input_field}, $value_type );
-    }
+    my $hash = Yote::SQLObjectStore::TiedHash->tie( $self, $id, $type );
+    my $tied = _yoteobj( $hash );
+    $self->weak( $tied );
+    $self->dirty( $tied );
     return $hash;
 }
 
+sub _yoteobj {
+    my $ref = shift;
+    my $r = ref $ref;
+    return tied @$ref if $r eq 'ARRAY';
+    return tied %$ref if $r eq 'HASH';
+    return $ref;
+}
 
-sub new_array {
+sub new_lookup_array {
     my ($self, $type, @vals) = @_;
 
-    my ($value_type) = ($type =~ /^\*ARRAY_(.*)/);
+    my ($value_type) = ($type =~ /^\^ARRAY_(.*)/);
 
     die "Cannot create array of type '$type'" unless $value_type;
 
     my $id = $self->next_id( $type );
 
-    my $data = [];
+    my $lookup_array = Yote::SQLObjectStore::LookupArray->ready( $self, $id, $type );
+    $self->weak( $lookup_array );
+    $self->dirty( $lookup_array );
 
-    $self->check_table($type);
-    my $table = $self->get_table_manager->label_to_table($type);
+    return $lookup_array;
+}
 
-    my $array = Yote::SQLObjectStore::Array->new(
-        ID    => $id,
-        
-        data  => $data,
-        store => $self,
-        table => $table,
-        type  => $type,
-        value_type => $value_type,
+sub new_tied_array {
+    my ($self, $type, @vals) = @_;
 
-        );
-    
-    $self->weak( $array );
-    $self->dirty( $array );
+    my ($value_type) = ($type =~ /^\*ARRAY_(.*)/);
 
-    push @$data, map { $self->xform_in( $_, $value_type ) } @vals;
+    die "Cannot create tied array of type '$type'" unless $value_type;
 
+    my $id = $self->next_id( $type );
+
+    my $array = Yote::SQLObjectStore::TiedArray->tie( $self, $id, $type );
+    my $tied = _yoteobj( $array );
+    $self->weak( $tied );
+    $self->dirty( $tied );
     return $array;
 }
 
@@ -292,12 +300,14 @@ sub xform_in_full {
 
     # check if type is right
     my $field_value;
-    if ($type_def =~ /^\*/ && $value) {
-        unless ($self->check_type( $value, $type_def )) {
-            my $checked_type = (ref $value && $value->{type}) || 'scalar value';
+    if ($type_def =~ /^[*^]/ && $value) {
+        my $obj = _yoteobj( $value );
+        unless ($self->check_type( $obj, $type_def )) {
+            my $checked_type = (ref $obj && $obj->{type}) || 'scalar value';
+            use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess,ref $value,$obj,"incorrect type '$checked_type' for '$type_def'"]);
             die "incorrect type '$checked_type' for '$type_def'";
         }
-        $field_value = $value->id;
+        $field_value = $obj->id;
     } else {
         $field_value = $value;
     }
@@ -314,7 +324,7 @@ sub xform_out {
 
     die "xform_out called without data definition" unless $def;
 
-    if( $def !~ /^\*/ || $value == 0 ) {
+    if( $def !~ /^[*^]/ || $value == 0 ) {
         return $value;
     }
 
@@ -339,8 +349,7 @@ sub fetch_root {
     my $root = $self->fetch( $root_id );
     return $root if $root;
 
-    $root = $self->new_obj( $self->{ROOT_PACKAGE}, 
-                            store => $self );
+    $root = $self->new_obj( $self->{ROOT_PACKAGE} );
 
 } #fetch_root
 
@@ -383,7 +392,7 @@ sub fetch {
     } else {
         $obj = $self->{WEAK}{$id};
     }
-
+print STDERR "FETCH ($obj)\n";
     return $obj if $obj;
 
 
@@ -407,9 +416,9 @@ sub fetch_path {
 #        print STDERR Data::Dumper->Dump(["SEGMENT IS $segment"]);
         if ($segment =~ /(.*)\[(\d+)\]$/) { #list or list segment
             my ($list_name, $idx) = ($1, $2);
-#print STDERR Data::Dumper->Dump([$list_name,$fetched,"IGET ARRY"]);
+#print STDERR Data::Dumper->Dump([$list_name,$fetched,"IGET ARRAY"]);
             $fetched = $fetched->get( $list_name );
-#print STDERR Data::Dumper->Dump([$list_name,$fetched,"IGOT ARRY"]);
+#print STDERR Data::Dumper->Dump([$list_name,$fetched,"IGOT ARRAY"]);
             $fetched = $fetched->get( $idx );
         } else {
 #            print STDERR Data::Dumper->Dump([$segment,$fetched,"IGET HASH"]);
@@ -449,13 +458,18 @@ sub ensure_path {
 
 =head2 is_dirty(obj)
 
-Returns true if the object need saving.
+Returns true if the object is a base storable object that needs saving.
 
 =cut
 
 sub is_dirty {
     my ($self,$obj) = @_;
 
+    unless ( blessed $obj && $obj->isa( 'Yote::SQLObjectStore::BaseStorable') ) {
+        warn "checked if non base value is dirty";
+        return;
+    }
+    
     return defined( $self->{DIRTY}{$obj->id} );
 }
 
@@ -475,11 +489,13 @@ sub weak {
 # in the DIRTY cache
 #
 sub dirty {
-    my ($self,$obj) = @_;
-    return unless $obj;
+    my ($self,$ref) = @_;
+    return unless $ref;
+    my $obj = _yoteobj($ref);
     my $id = $obj->id;
+    my $cache_obj = $obj->cache_obj;
     unless ($self->{WEAK}{$id}) {
-	$self->weak($obj);
+	$self->weak($cache_obj);
     }
     my $target = $self->{WEAK}{$id};
 
@@ -503,6 +519,7 @@ sub sth {
     my $stats = $self->statements;
     my $dbh   = $self->dbh;
     my $sth   = ($stats->{$query} //= $dbh->prepare( $query ));
+
     $sth or die "$query : ". $dbh->errstr;
 
     return $sth;
@@ -547,6 +564,7 @@ sub query_do {
     }
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,"QDO"]);
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
@@ -587,9 +605,9 @@ sub apply_query_array {
         die $sth->errstr;
     }
 #print STDERR Data::Dumper->Dump([$res,$sth->errstr,$query,$qparams,"RESULT"]);
-    while ( my (@arry) = $sth->fetchrow_array ) {
-#print STDERR Data::Dumper->Dump([\@arry,"GOT ARRY"]);
-        $eachrow_fun->(@arry);
+    while ( my (@array) = $sth->fetchrow_array ) {
+#print STDERR Data::Dumper->Dump([\@array,"GOT ARRAY"]);
+        $eachrow_fun->(@array);
     }
 }
 
@@ -603,33 +621,17 @@ sub fetch_obj_from_sql {
 
     return undef unless $handle;
 
-    if ($handle =~ /^(\*HASH<(\d+)>_(.*))/) {
-        my $hash = Yote::SQLObjectStore::Hash->new(
-            ID             => $id,
-
-            data           => {},
-            type           => $handle,
-            has_first_save => 1,
-            key_size       => $2,
-            store          => $self,
-            table          => $self->get_table_manager->label_to_table($handle),
-            type           => $1,
-            value_type     => $3,
-            );
-        return $hash;
+    if ($handle =~ /^\*HASH<\d+>_.*/) {
+        return Yote::SQLObjectStore::TiedHash->tie( $self, $id, $handle );
     }
-    elsif ($handle =~ /^(\*ARRAY_(.*))/) {
-        return Yote::SQLObjectStore::Array->new(
-            ID             => $id,
-
-            data           => [],
-            has_first_save => 1,
-            store          => $self,
-            table_label    => $handle,
-            table          => $self->get_table_manager->label_to_table($handle),
-            type           => $1,
-            value_type     => $2,
-            );
+    elsif ($handle =~ /^\^HASH<\d+>_.*/) {
+        return Yote::SQLObjectStore::LookupHash->ready( $self, $id, $handle );
+    }
+    elsif ($handle =~ /^\*ARRAY_.*/) {
+        return Yote::SQLObjectStore::TiedArray->tie( $self, $id, $handle );
+    }
+    elsif ($handle =~ /^\^ARRAY_.*/) {
+        return Yote::SQLObjectStore::LookupArray->ready( $self, $id, $handle );
     }
 
     # otherwise is an object, so grab its data
@@ -660,14 +662,17 @@ sub fetch_obj_from_sql {
 
 sub check_type {
     my ($self, $value, $type_def) = @_;
+    my $obj = _yoteobj($value);
 
-    $value
+    $obj
         and
-        $value->isa( $self->base_obj ) ||
-        $value->isa( 'Yote::SQLObjectStore::Array' ) ||
-        $value->isa( 'Yote::SQLObjectStore::Hash' ) 
+        $obj->isa( $self->base_obj ) ||
+        $obj->isa( 'Yote::SQLObjectStore::TiedArray' ) ||
+        $obj->isa( 'Yote::SQLObjectStore::TiedHash' ) ||
+        $obj->isa( 'Yote::SQLObjectStore::LookupArray' ) ||
+        $obj->isa( 'Yote::SQLObjectStore::LookupHash' ) 
         and
-        $value->is_type( $type_def );
+        $obj->is_type( $type_def );
 }
 
 "BUUG";

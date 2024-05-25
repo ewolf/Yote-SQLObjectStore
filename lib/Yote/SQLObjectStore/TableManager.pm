@@ -54,10 +54,8 @@ sub find_obj_packages {
     for my $dir (@INC) {
         next if $dir eq '.';
         # find the perl files in this directory
-#print STDERR ">>CHECK>>$dir\n";
         push @mods, $self->walk_for_perl( $base_obj_package, $seen_packages, $dir );
     }
-
     return @mods;
 }
 
@@ -65,19 +63,39 @@ sub label_to_table {
     my ($self, $label) = @_;
     if ($label =~ /^\*HASH<(\d+)>_(.*)/) {
         my ($key_size, $val_type) = ($1, $2);
-        if ($val_type =~ /^\*/) {
+        if ($val_type =~ /^[*^]/) {
             return "HASH_${key_size}_REF";
         }
         $val_type =~ s/[()]/_/g;
+        $val_type =~ s/\^/LOOKUP/g;
         return "HASH_${key_size}_$val_type";
+    }
+    if ($label =~ /^\^HASH<(\d+)>_(.*)/) {
+        my ($key_size, $val_type) = ($1, $2);
+        if ($val_type =~ /^[*^]/) {
+            return "LOOKUPHASH_${key_size}_REF";
+        }
+        $val_type =~ s/[()]/_/g;
+        $val_type =~ s/\^/LOOKUP/g;
+        return "LOOKUPHASH_${key_size}_$val_type";
     }
     elsif ($label =~ /^\*ARRAY_\*/) {
         return "ARRAY_REF";
     }
+    elsif ($label =~ /^\^ARRAY_\*/) {
+        return "LOOKUPARRAY_REF";
+    }
     elsif ($label =~ /^\*ARRAY_(.*)/) {
         my $array_type = $1;
         $array_type =~ s/[()]/_/g;
+        $array_type =~ s/\^/LOOKUP/g;
         return "ARRAY_$array_type";
+    }
+    elsif ($label =~ /^\^ARRAY_(.*)/) {
+        my $array_type = $1;
+        $array_type =~ s/[()]/_/g;
+        $array_type =~ s/\^/LOOKUP/g;
+        return "LOOKUPARRAY_$array_type";
     }
     return $label;
 }
@@ -88,8 +106,9 @@ sub generate_hash_table {
     my $tables = $self->{tables};
 
     my $table_label = join '_', $container_type, $field_type;
+    my $table_name = $self->label_to_table( $table_label );
 
-    return if $tables->{$table_label};
+    return if $tables->{$table_name};
 
     my $alias_of;
 
@@ -100,7 +119,6 @@ sub generate_hash_table {
         "hashkey VARCHAR($key_size)",
         );
 
-    my $table_name = $self->label_to_table( $table_label );
     if ($field_type =~ /^\*(.*)/) {
         $alias_of = "*HASH<${key_size}>_*";
         $self->generate_reference_table( $1 );
@@ -110,13 +128,14 @@ sub generate_hash_table {
     }
 
     # alias definition
-    my $table_def = $tables->{$table_label} = {
+    my $table_def = $tables->{$table_name} = {
         field_type   => $field_type, #maybe yes, maybe no
     };
 
     push @column_sql, "UNIQUE (id,hashkey)";
     my $create_table_sql = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';    
+
     #
     # if the table is a value array, its name and alias will be
     # the same, so add the create_table field.
@@ -131,7 +150,7 @@ sub generate_hash_table {
 }
 
 sub generate_array_table {
-    my ($self, $field_type) = @_;
+    my ($self, $container_type, $field_type) = @_;
     
     # generating a virtual table data structure
     # representing an array that has column reference
@@ -150,8 +169,9 @@ sub generate_array_table {
     #
     my $tables = $self->{tables};
 
-    my $table_label = join '_', '*ARRAY', $field_type;
-    return if $tables->{$table_label};
+    my $table_label = join '_', "${container_type}ARRAY", $field_type;
+    my $table_name = $self->label_to_table( $table_label );
+    return if $tables->{$table_name};
 
     my $alias_of;
 
@@ -160,17 +180,17 @@ sub generate_array_table {
         "idx INT UNSIGNED",
         );
 
-    my $table_name = $self->label_to_table( $table_label );
     
-    if ($field_type =~ /^\*(.*)/) {
-        $alias_of = "*ARRAY_*";
-        $self->generate_reference_table( $1 );
+    if ($field_type =~ /^([*^])(.*)/) {
+        $alias_of = "${1}ARRAY_*";
+        $self->generate_reference_table( $2 );
         push @column_sql, "val BIGINT UNSIGNED";
-    } else {
+    }
+    else {
         push @column_sql, "val $field_type";
     }
 
-    my $table_def = $tables->{$table_label} = {
+    my $table_def = $tables->{$table_name} = {
         field_type   => $field_type, #maybe yes, maybe no
     };
 
@@ -179,12 +199,16 @@ sub generate_array_table {
         join( ',', @column_sql ) .')';    
 
     #
-    # if the table is a value array, its name and alias will be
+    # check if the alias exists and is not equal to the table label
+    # in this case, the table is an array of other references.
+    #
+    # otherwise if the table is a value array, its name and alias will be
     # the same, so add the create_table field.
     # 
     if ($alias_of && $alias_of ne $table_label) {
         $table_def->{alias_of} = $alias_of;
-        $self->generate_array_table( '*' );
+        my ($value_table) = ($table_label =~ /^[*^]ARRAY_(.*)/);
+        $self->generate_reference_table( $value_table );
     } else {
         $table_def->{table_name} = $table_name,
         $table_def->{create_table_sql} = $create_table_sql;
@@ -194,14 +218,14 @@ sub generate_array_table {
 sub generate_reference_table {
     my ($self, $col_type) = @_;
 
-    if ($col_type =~/^\*((ARRAY|HASH(<\d*>)?)_)?(.*)/) {
-        if ($2 && $2 eq 'ARRAY') {
-            $self->generate_array_table( $4 );
-        } elsif( $2 ) {
-            $self->generate_hash_table( "*$2", $4 );
-        } elsif ($3) {
-            $self->generate_table_from_module( $3 );
-        }
+    my ($container_type, $is_container, $container_label, $hash_key_size, $value_type) 
+        = ($col_type =~/^([*^])((ARRAY|HASH(<\d*>)?)_)?(.*)/);
+    if ($is_container && $container_label eq 'ARRAY') {
+        $self->generate_array_table( $container_type, $value_type );
+    } elsif( $is_container ) {
+        $self->generate_hash_table( "$container_type$container_label", $value_type );
+    } elsif ($value_type) {
+        $self->generate_table_from_module( $value_type );
     }
 }
 
@@ -209,10 +233,9 @@ sub generate_table_from_module {
     my ($self, $mod) = @_;
     my $tables = $self->{tables};
     my $table_label = $mod;
-
     my $table_name = join '_', reverse split /::/, $mod;
 
-    return if $tables->{$table_label};
+    return if $tables->{$table_name};
 
     if (! can_load( modules => { $mod => 0 }, verbose => 1 )) {
         die "unable to load module '$mod'";
@@ -222,9 +245,17 @@ sub generate_table_from_module {
     my %column_defs;
 
     my $cols = $mod->cols;
+
+    my $table_def = $tables->{$table_name} = {
+        module           => $mod,
+        table_name       => $table_name,
+        column_defs      => $cols,
+    };
+
+
     for my $col_name (sort keys %$cols) {
         my $col_type = $cols->{$col_name};
-        if ($col_type =~ /^\*/) {
+        if ($col_type =~ /^[*^]/) {
             # a reference
             $self->generate_reference_table( $col_type );
             push @column_sql, "$col_name BIGINT UNSIGNED";
@@ -237,12 +268,8 @@ sub generate_table_from_module {
     my $create_table_sql = "CREATE TABLE IF NOT EXISTS $table_name (" .
         join( ',', @column_sql ) .')';
 
-    $tables->{$table_name} = {
-        module           => $mod,
-        table_name       => $table_name,
-        create_table_sql => $create_table_sql,
-        column_defs      => $cols,
-    };
+    $table_def->{create_table_sql} = $create_table_sql;
+
     $create_table_sql;
 }
 

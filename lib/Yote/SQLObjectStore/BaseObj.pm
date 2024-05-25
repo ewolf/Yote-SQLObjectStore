@@ -36,6 +36,11 @@ sub col_names {
     return sort keys %$cols;
 }
 
+# returns this for caching (tied things return their tied data structures)
+sub cache_obj {
+    shift;
+}
+
 # return table name, which is the reverse of 
 # the package path (most specific first)
 # plus any suffix parts

@@ -1,34 +1,62 @@
-package Yote::SQLObjectStore::Array;
+package Yote::SQLObjectStore::LookupArray;
 
 use 5.16.0;
 use warnings;
 
-use Yote::SQLObjectStore::TiedArray;
+use 5.16.0;
+use warnings;
 
 use base 'Yote::SQLObjectStore::BaseStorable';
 
-sub new {
-    my ($pkg, %args) = @_;
-    my $arry = $pkg->SUPER::new(%args);
-    $arry->{value_type} = $args{value_type};
-    return $arry;
-}
+sub ready {
+    my ($pkg, $store, $id, $handle) = @_;
+    my( $key_size, $value_type ) = ( $handle =~ /^\^HASH<(\d+)>_(.*)/ );
+    my %args = (
+        ID => $id,
 
-sub get {
-    my ($self, $idx) = @_;
-#    print STDERR Data::Dumper->Dump([$self->{data},"ARRAY GET $idx"]);
-    $self->slice( $idx, 1 )->[0];
+        data           => {}, # yes, using a hash
+        key_size       => $key_size,
+        has_first_save => 1,
+        store          => $store,
+        table          => $store->get_table_manager->label_to_table($handle),
+        type           => $handle,
+        value_type     => $value_type,
+
+        );
+    my $self = $pkg->SUPER::new(%args);
+
+    # hash deleted keys here
+    $self->{deletes} = {};
+
+    return $self;
 }
 
 sub set {
     my ($self, $idx, $val) = @_;
+
     my $data = $self->data;
     my $inval = $self->store->xform_in( $val, $self->{value_type} );
+
     no warnings 'uninitialized';
-    unless (exists $data->[$idx] && $data->[$idx] eq $inval) {
-        $self->dirty;
-        $data->[$idx] = $inval;
+
+    if ($idx >= $self->{size}) {
+        $self->{size} += (1 + $idx - $self->{size});
     }
+
+    unless (exists $data->{$idx} && $data->{$idx} eq $inval) {
+        $self->dirty;
+        $data->{$idx} = $inval;
+    }
+    delete $self->{deletes}{$idx};
+
+    return $val;
+}
+
+sub get {
+    my ($self, $idx) = @_;
+
+    my ($val) = $self->slice( $idx, 1 );
+
     return $val;
 }
 
@@ -41,26 +69,29 @@ sub push {
     my (@invals) = map { $store->xform_in($_, $value_type) } @vals;
     $self->dirty;
     CORE::push @$data, @invals;
+    $self->{size} += @vals;
     return scalar(@$data);
 }
 
 sub pop {
     my $self = CORE::shift;
     my $data = $self->data;
-    return unless @$data;
+    return unless $self->{size};
 
     $self->dirty;
     my $val = pop @$data;
+    $self->{size}--;
     return $self->store->xform_out( $val, $self->{value_type} );
 }
 
 sub shift {
     my $self = CORE::shift;
     my $data = $self->data;
-    return unless @$data;
+    return unless $self->{size};
 
     $self->dirty;
     my $val = CORE::shift @$data;
+    $self->{size}--;
     return $self->store->xform_out( $val, $self->{value_type} );
 }
 
@@ -73,6 +104,7 @@ sub unshift {
     my (@invals) = map { $store->xform_in($_, $value_type) } @vals;
     $self->dirty;
     unshift @$data, @invals;
+    $self->{size} += @vals;
     return scalar(@$data);
 }
 
@@ -86,6 +118,7 @@ sub splice {
     my (@invals) = map { $store->xform_in($_, $value_type) } @vals;
     $self->dirty;
     my @outvals = splice @$data, $pos, $amount, @invals;
+    $self->{size} += (@invals - @outvals);
 
     return map { $store->xform_out( $_, $value_type ) } @outvals;
 }
@@ -98,17 +131,21 @@ sub delete {
     my $val = $data->[$idx];
     $self->dirty;
     delete $data->[$idx];
+    if ($idx == $self->{size} - 1) {
+        $self->{size}--;
+    }
 
     return $self->store->xform_out( $val, $self->{value_type} );
 }
 
 sub size {
-    my $data = CORE::shift->data;
-    scalar(@$data)
+    CORE::shift->{size};
 }
 
 sub slice {
     my ($self, $idx, $length) = @_;
+
+    return () if $length == 0;
 
     my $value_type = $self->{value_type};
     my $store = $self->store;
@@ -133,24 +170,21 @@ sub slice {
     my $table = $self->table;
 
     my $slice = [];
-    if ($#$data >= $to_idx && $to_idx > 0) {
-        for ($idx..$to_idx) {
-            CORE::push @$slice, $store->xform_out( $data->[$_], $value_type );
-        }
-    }
-#print STDERR Data::Dumper->Dump([$data,"$idx..$to_idx","$#$data >= $to_idx",$slice,"SLI"]);
 
     my $sql = "SELECT idx,val FROM $table WHERE id=? $LIMIT";
-
     $store->apply_query_array( $sql,
                                [$self->id],
                                sub  {
                                    my ($item_idx,$v) = @_;
                                    my $slice_idx = $item_idx - $idx;
-#                                   print STDERR Data::Dumper->Dump(["Add item $item_idx, $v to SLICE as slice idx $slice_idx"]);
                                    $slice->[$slice_idx] = $store->xform_out( $v, $value_type );
                                } );
-#print STDERR Data::Dumper->Dump([$slice,"REUTRN SLICE"]);
+    if ($#$data >= $to_idx && $to_idx > 0) {
+        for ($idx..$to_idx) {
+            CORE::push @$slice, $store->xform_out( $data->[$_], $value_type );
+        }
+    }
+
     return $slice;
 
 }
@@ -158,10 +192,11 @@ sub slice {
 sub clear {
     my ($self) = @_;
     my $data = $self->data;
-    if (scalar(@$data)) {
+    if ($self->{size} > 0) {
+        $self->{size} = 0;
         $self->dirty;
     }
-    $data = [ map { $_ => undef } keys %$data ];
+    $data = [];
 }
 
 sub tied_array {
@@ -200,20 +235,36 @@ sub load_all {
 
 sub save_sql {
     my $self = CORE::shift;
-
     my $data = $self->data;
-    my $fields = scalar @$data;
-    if ($fields) {
+    my $entries = scalar @$data;
+    if ($entries) {
         my $id = $self->id;
         my $table = $self->table;
-        return
-            [ "DELETE FROM $table WHERE id=?", $id ],
-            [ "INSERT INTO $table (id,idx,val) VALUES "
-              .join( ',', ("(?,?,?)") x $fields),
-              map { $id, $_, $data->[$_] } (0..$#$data)
-            ];
+        my @sql;
+        if ($self->{size} == @$data) {
+            CORE::push @sql, [ "DELETE FROM $table WHERE id=?", $id ];
+        }
+        if ($self->{size}) {
+            CORE::push @sql, [ $self->store->insert_or_replace . " INTO $table (id,idx,val) VALUES "
+                               .join( ',', ("(?,?,?)") x $entries),
+                               map { $id, $_, $data->[$_] } (0..$#$data)];
+        }
+        return @sql;
     }
     return ();
+}
+
+sub load_info {
+    my $self = CORE::shift;
+    my $table = $self->table;
+    my $sql = "SELECT count(*) FROM $table WHERE id=?";
+    my ($db_size) = $self->store->query_line( $sql, $self->id );
+    my $data_size = scalar(@{$self->{data}});
+
+ $sql = "SELECT max(idx) FROM $table WHERE id=?";
+    my ($max) = $self->store->query_line( $sql, $self->id );
+
+    $self->{size} = $db_size > $data_size ? $db_size : $data_size;
 }
 
 1;

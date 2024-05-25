@@ -48,6 +48,12 @@ if(0){
     exit;
 }
 
+sub make_all_tables {
+    my $object_store = shift;
+    local @INC = qw( ./lib ./t/lib );
+    $object_store->make_all_tables;
+    
+}
 
 subtest 'reference and reopen test' => sub {
     my $db_handle = $factory->new_db_handle;
@@ -57,7 +63,7 @@ subtest 'reference and reopen test' => sub {
             dbname => $db_handle,
             %args,
             );
-        $object_store->make_all_tables;
+        make_all_tables( $object_store );
         $object_store->open;
         is ($object_store->record_count, 3, 'root record and its hashes in store');
 
@@ -74,6 +80,10 @@ subtest 'reference and reopen test' => sub {
         ok ($r1 != 1, "not equal to a number" );
         ok (! ($r1 eq 1), "not equal to a string" );
         ok ($r1 ne 1, "not the same as a number" );
+
+        ok (! $object_store->is_dirty( 1234 ), 'numbers cannot be dirty' );
+        my $nothing = bless { }, 'MariaDB::NotAThing';
+        ok (! $object_store->is_dirty( $nothing ), 'non base objects cannot be dirty' );
 
         my $root_vals = $r1->get_val_hash;
         my $root_vals_hash = $root_vals->tied_hash;
@@ -182,7 +192,7 @@ subtest 'reference and reopen test' => sub {
         is_deeply ($mtth, {}, 'fetched path containing empty hash' );
         $mth->set( 'NOTEMPTY', 'anymore' );
         is_deeply( $mtth, { NOTEMPTY => 'anymore' }, 'newly filled formly empty hash' );
-        ok ( $object_store->is_dirty( $mth ), 'no longer empty hash is dirty' );
+        ok ( $object_store->is_dirty( $mth ), 'no longer empty hash is dirty because stuff was put into it' );
         
         $mth->set('NOTEMPTY');
         is_deeply( $mtth, { NOTEMPTY => undef }, 'sorta empty formly empty hash' );
@@ -320,6 +330,24 @@ subtest 'reference and reopen test' => sub {
 
 
         my $bad_val_array = $bad->get_some_val_array;
+
+        is ($bad_val_array->size, 0, 'bad val array starts empty' );
+        ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array starts clean' );        
+        my $bad_val_tied_array = $bad_val_array->tied_array;
+        is (@$bad_val_tied_array, 0, 'bad val tied array starts empty' );
+        ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still clean after tied array called' );
+
+        push @$bad_val_tied_array; #pushing nothing
+        ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still clean after empty push' );        
+        unshift @$bad_val_tied_array; #pushing nothing
+        ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still clean after empty unshift' );
+
+        pop @$bad_val_tied_array; #popping nothing
+        ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still clean after empty pop' );        
+        shift @$bad_val_tied_array; #pushing nothing
+        ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still clean after empty shift' );
+
+
         throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_\*' for '\*ARRAY_\*'/, 'cannot set a ref hash to a ref array';
         throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*ARRAY_\*' for '\*HASH<256>_\*'/, 'cannot set a ref array to a hash ref';
         throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*ARRAY_VARCHAR[(]100[)]' for '\*HASH<256>_VARCHAR[(]100[)]'/, 'cannot set a val array to a val hash';
@@ -336,9 +364,13 @@ subtest 'reference and reopen test' => sub {
         ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array just saved, is not dirty' );
         $bad_val_array->tied_array->[100] = "ONEHUND";
         ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still not dirty after setting index to value it already had' );
+
+print STDERR Data::Dumper->Dump([$bad_val_array->get(100),$bad_val_array->tied_array->[100],$bad_val_array->tied_array,"THE HUND"]);
+
+print STDERR Data::Dumper->Dump([$bad_val_array->tied_array,"THE TIED"]);
         is (@{$bad_val_array->tied_array}, 101, '101 entries for bad val array' );
 
-        ok (! exists $bad_val_array->tied_array->[99], 'nothing at index 99 inp bad val array' );
+        ok (! defined $bad_val_array->tied_array->[99], 'nothing at index 99 inp bad val array' );
         
         ok (! $object_store->is_dirty( $bad_val_array ), 'bad val array still not dirty after checking exists' );
         delete $bad_val_array->tied_array->[98];
@@ -375,6 +407,12 @@ subtest 'reference and reopen test' => sub {
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array[100]" ), "ONEHUND", 'fetched path containing indexes array value' );
 
         my $bad_val_obj = $bad->get_some_val_array;
+        
+        ok (!$object_store->is_dirty( $bad_val_obj ), 'some val obj not dirty' );
+        $bad_val_obj->set( 100, 'ONEHUND' );
+        ok (!$object_store->is_dirty( $bad_val_obj ), 'some val obj still not dirty after setting an index to the value it already is' );
+
+
         my $bad_val_array = $bad_val_obj->tied_array;
         is (@$bad_val_array, 101, '101 entries for bad val array' );
         my $undef = shift @$bad_val_array;
@@ -446,7 +484,7 @@ subtest 'reference and reopen test' => sub {
             %args,
             );
 
-        $object_store->make_all_tables;
+        make_all_tables( $object_store );
         $object_store->open;
 
         my $dbh = $object_store->dbh;
