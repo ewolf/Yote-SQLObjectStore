@@ -7,55 +7,11 @@ use Yote::SQLObjectStore::TiedHash;
 
 use base 'Yote::SQLObjectStore::BaseStorable';
 
-sub get {
-    my ($self, $key) = @_;
-    my $slice = $self->slice( $key );
-
-    $slice->{$key};
-}
-
-sub slice {
-    my ($self, @keys) = @_;
-
-    return {} unless @keys;
-
-    my $value_type = $self->{value_type};
-    my $store = $self->store;
-
-    my $data = $self->data;
-    return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
-
-
-#     my $data = $self->data;
-#     if (!$self->has_first_save) {
-#         # if this has not had its first save, use the data hash rather than the table
-# #print STDERR Data::Dumper->Dump([{ map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys },"SLUICER2"]);
-#         return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
-#     }
-
-#     my $table = $self->table;
-
-#     my $slice = {};
-#     my $sql = "SELECT hashkey,val FROM $table WHERE id=? AND (". join(' OR ', ('hashkey=?') x @keys).")";
-
-#     $store->apply_query_array( $sql,
-#                                [$self->id, @keys],
-#                                sub  {
-#                                    my ($k, $v) = @_;
-#                                    # if the key exists in the data, it may mean that there is an override here
-#                                    $slice->{$k} = $store->xform_out( exists $data->{$k} ? $data->{$k} : $v, $value_type );
-#                                } );
-# #print STDERR Data::Dumper->Dump([$slice,"SLUICER3"]);
-#     return $slice;
-}
-
-sub clear {
-    my ($self) = @_;
-    my $data = $self->data;
-    if (scalar(keys %$data)) {
-        $self->dirty;
-    }
-    %$data = ();
+sub new {
+    my ($pkg, %args) = @_;
+    my $hash = $pkg->SUPER::new(%args);
+    $hash->{value_type} = $args{value_type};
+    return $hash;
 }
 
 sub set {
@@ -70,16 +26,60 @@ sub set {
     return $value;
 }
 
+sub get {
+    my ($self, $key) = @_;
+    my $slice = $self->slice( $key );
+    $slice->{$key};
+}
+
+sub slice {
+    my ($self, @keys) = @_;
+
+    return {} unless @keys;
+
+    my $value_type = $self->{value_type};
+    my $store = $self->store;
+
+    my $data = $self->data;
+
+    if ($self->{fully_loaded}) {
+        return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };        
+    }
+
+     my $table = $self->table;
+
+     my $slice = {map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys};
+     my $sql = "SELECT hashkey,val FROM $table WHERE id=? AND (". join(' OR ', ('hashkey=?') x @keys).")";
+
+     $store->apply_query_array( $sql,
+                                [$self->id, @keys],
+                                sub  {
+                                    my ($k, $v) = @_;
+                                    # if the key exists in the data, it may mean that there is an override here
+                                    $slice->{$k} = $store->xform_out( exists $data->{$k} ? $data->{$k} : $v, $value_type );
+                                } );
+     return $slice;
+}
+
+sub clear {
+    my ($self) = @_;
+    my $data = $self->data;
+    if (scalar(keys %$data)) {
+        $self->dirty;
+    }
+    $data = { map { $_ => undef } keys %$data };
+}
+
 sub delete_key {
     my ($self, $key) = @_;
     my $data = $self->data;
-    return undef unless exists $data->{$key};
+    return undef unless exists $data->{$key} && defined $data->{$key};
 
     my $val = $data->{$key};
 
 
     $data->{$key} = undef; #set as undef so it will be delete in the db
-    $self->dirty if defined $val;
+    $self->dirty;
     return $self->store->xform_out( $val, $self->{value_type} );
 }
 
@@ -89,6 +89,8 @@ sub tied_hash {
     my $tied_hash = $self->{tied_hash};
     return $tied_hash if $tied_hash;
 
+    $self->load_all;
+
     $tied_hash = $self->{tied_hash} = {};
 
     tie %$tied_hash, 'Yote::SQLObjectStore::TiedHash', $self;
@@ -96,7 +98,7 @@ sub tied_hash {
     return $tied_hash;
 }
 
-sub load_from_sql {
+sub load_all {
     my $self = shift;
 
     my $data     = $self->{data};
@@ -110,6 +112,7 @@ sub load_from_sql {
             my ($k, $v) = @_;
             $data->{$k} = $v;
         } );
+    $self->{fully_loaded} = 1;
 }
 
 sub save_sql {
@@ -151,7 +154,6 @@ sub save_sql {
             push @ret_sql, [$sql, map { @$_ } @insert_qparams];
         }
     }
-
     return @ret_sql;
 
 }

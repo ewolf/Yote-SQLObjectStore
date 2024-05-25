@@ -100,13 +100,11 @@ subtest 'reference and reopen test' => sub {
         is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, { fooz => 'barz' }, 'empty ref hash' );
         delete $mty->{fooz};
         is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, { fooz => undef }, 'fooz has been set to undef for db deletion' );
-
         is_deeply( $val_arry_obj->slice( 1, 1), [ 2 ], 'slice for one' );
         is_deeply( $val_arry_obj->slice( 1 ), [ 2, 3 ], 'slice for rest' );
         is_deeply( $val_arry_obj->slice( 1, 100 ), [ 2, 3 ], 'slice for rest more than rest' );
 
         my $val_arry = $val_arry_obj->tied_array;
-
         is_deeply( $val_arry_obj->slice( 1, 1), [ 2 ], 'slice for one' );
         is_deeply( $val_arry_obj->slice( 1 ), [ 2, 3 ], 'slice for rest' );
         is_deeply( $val_arry_obj->slice( 1, 100 ), [ 2, 3 ], 'slice for rest more than rest' );
@@ -115,6 +113,7 @@ subtest 'reference and reopen test' => sub {
         is ($brad->get_sister, $wilma, 'brad sister is wilma' );
         is_deeply( $val_hash, { a => 1, b => 2, c => 3 }, 'val hash' );
         is_deeply( $ref_hash, { root => $r1 }, 'ref hash' );
+
         is_deeply( $val_arry, [1,2,3], 'val array' );
         is_deeply( $ref_arry, [$r1, $wilma, $brad ], 'ref array' );
         is_deeply( $mty, { fooz => undef }, 'ref hash with one undef value' );
@@ -360,6 +359,20 @@ subtest 'reference and reopen test' => sub {
             );
         $object_store->open;
 
+warn "NEEDS THE TIED ARRAY FOR NOW? LETS DEBUG WHY";
+
+#
+# works if the next statment is uncommented out
+#
+#    $object_store->fetch_path( "/ref_hash/ref_array" )->tied_array;
+#
+
+#print STDERR Data::Dumper->Dump([$object_store->fetch_path( "/ref_hash/ref_array" ), "REFA"]);BAIL_OUT( "NINDS");
+#print STDERR Data::Dumper->Dump([$object_store->fetch_path( "/ref_hash/ref_array[3]" ),'SMURG']);BAIL_OUT( "NINDS");
+$object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array" )->tied_array;
+#        print STDERR Data::Dumper->Dump([$object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array" )]);BAIL_OUT( "NINDS");
+
+
         my $bad = $object_store->fetch_path( "/ref_hash/ref_array[3]" );
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array[100]" ), "ONEHUND", 'fetched path containing indexes array value' );
 
@@ -368,6 +381,8 @@ subtest 'reference and reopen test' => sub {
         is (@$bad_val_array, 101, '101 entries for bad val array' );
         my $undef = shift @$bad_val_array;
         is ($undef, undef, 'shifted undef value');
+
+
         is (@$bad_val_array, 100, '100 entries for bad val array after shift' );
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array[99]" ), "ONEHUND", 'fetched path containing indexes array value shifted down one' );
         is ($#$bad_val_array, 99, 'last index 99 for bad val array');

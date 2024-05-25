@@ -118,6 +118,9 @@ sub get {
     die "No field '$field' in ".ref($self) unless $def;
 
     my $data = $self->data;
+
+print STDERR Data::Dumper->Dump([$field,$default,$data,"GETMEA"]);
+
     if ((! exists $data->{$field}) and defined($default)) {
 	return $self->set($field,$default);
     }

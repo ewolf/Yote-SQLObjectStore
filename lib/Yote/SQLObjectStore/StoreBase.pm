@@ -399,16 +399,22 @@ sub fetch {
 # get a path from the data structure
 sub fetch_path {
     my ($self, $path) = @_;
+    print STDERR Data::Dumper->Dump(["FETCH PATH <$path>"]);
     my @path = grep { $_ ne '' } split '/', $path;
     my $fetched = $self->fetch_root;
 
     while (my $segment = shift @path) {
+        print STDERR Data::Dumper->Dump(["SEGMENT IS $segment"]);
         if ($segment =~ /(.*)\[(\d+)\]$/) { #list or list segment
             my ($list_name, $idx) = ($1, $2);
+print STDERR Data::Dumper->Dump([$list_name,$fetched,"IGET ARRY"]);
             $fetched = $fetched->get( $list_name );
+print STDERR Data::Dumper->Dump([$list_name,$fetched,"IGOT ARRY"]);
             $fetched = $fetched->get( $idx );
         } else {
+            print STDERR Data::Dumper->Dump([$segment,$fetched,"IGET HASH"]);
             $fetched = $fetched->get($segment);
+            print STDERR Data::Dumper->Dump([$segment,$fetched,"IGOT HASH"]);
         }
         last unless defined $fetched;
     }
@@ -517,7 +523,7 @@ sub insert_get_id {
 
 sub query_all {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
@@ -533,7 +539,7 @@ sub query_all {
 
 sub query_do {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
@@ -557,9 +563,20 @@ sub query_line {
     }
     my @ret = $sth->fetchrow_array;
 
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,$self->dbh->errstr,"query line"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,$self->dbh->errstr,"query line"]);
 
     return @ret;
+}
+
+sub print_query_output {
+    my ($self, $query, @qparams ) = @_;
+    my $sth = $self->sth( $query );
+    my $res = $sth->execute( @qparams );
+    if (!defined $res) {
+        die $sth->errstr;
+    }
+    print STDERR Data::Dumper->Dump([$sth->fetchall_arrayref,$sth->errstr]);
+    
 }
 
 sub apply_query_array {
@@ -569,7 +586,9 @@ sub apply_query_array {
     if (!defined $res) {
         die $sth->errstr;
     }
+print STDERR Data::Dumper->Dump([$res,$sth->errstr,$query,$qparams,"RESULT"]);
     while ( my (@arry) = $sth->fetchrow_array ) {
+print STDERR Data::Dumper->Dump([\@arry,"GOT ARRY"]);
         $eachrow_fun->(@arry);
     }
 }
@@ -597,7 +616,6 @@ sub fetch_obj_from_sql {
             type           => $1,
             value_type     => $3,
             );
-        $hash->load_from_sql;
         return $hash;
     }
     elsif ($handle =~ /^(\*ARRAY_(.*))/) {
