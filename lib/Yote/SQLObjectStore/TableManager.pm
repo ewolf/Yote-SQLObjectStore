@@ -83,7 +83,9 @@ sub label_to_table {
 }
 
 sub generate_hash_table {
-    my ($self, $container_type, $field_type, $tables) = @_;
+    my ($self, $container_type, $field_type) = @_;
+
+    my $tables = $self->{tables};
 
     my $table_label = join '_', $container_type, $field_type;
 
@@ -121,7 +123,7 @@ sub generate_hash_table {
     # 
     if ($alias_of && $alias_of ne $table_label) {
         $table_def->{alias_of} = $alias_of;
-        $self->generate_hash_table( $container_type, '*', $tables );
+        $self->generate_hash_table( $container_type, '*' );
     } else {
         $table_def->{table_name} = $table_name,
         $table_def->{create_table_sql} = $create_table_sql;
@@ -129,7 +131,7 @@ sub generate_hash_table {
 }
 
 sub generate_array_table {
-    my ($self, $field_type, $tables) = @_;
+    my ($self, $field_type) = @_;
     
     # generating a virtual table data structure
     # representing an array that has column reference
@@ -146,6 +148,7 @@ sub generate_array_table {
     # the table has a label to identify it. if it is a typed reference
     # it has an alias_of field that points to the table label ARRAY_REF
     #
+    my $tables = $self->{tables};
 
     my $table_label = join '_', '*ARRAY', $field_type;
     return if $tables->{$table_label};
@@ -181,7 +184,7 @@ sub generate_array_table {
     # 
     if ($alias_of && $alias_of ne $table_label) {
         $table_def->{alias_of} = $alias_of;
-        $self->generate_array_table( '*', $tables );
+        $self->generate_array_table( '*' );
     } else {
         $table_def->{table_name} = $table_name,
         $table_def->{create_table_sql} = $create_table_sql;
@@ -189,12 +192,13 @@ sub generate_array_table {
 }
 
 sub generate_reference_table {
-    my ($self, $col_type, $tables) = @_;
+    my ($self, $col_type) = @_;
+
     if ($col_type =~/^\*((ARRAY|HASH(<\d*>)?)_)?(.*)/) {
         if ($2 && $2 eq 'ARRAY') {
-            $self->generate_array_table( $4, $tables );
+            $self->generate_array_table( $4 );
         } elsif( $2 ) {
-            $self->generate_hash_table( "*$2", $4, $tables );
+            $self->generate_hash_table( "*$2", $4 );
         } elsif ($3) {
             $self->generate_table_from_module( $3 );
         }
@@ -202,8 +206,8 @@ sub generate_reference_table {
 }
 
 sub generate_table_from_module {
-    my ($self, $mod, $tables) = @_;
-
+    my ($self, $mod) = @_;
+    my $tables = $self->{tables};
     my $table_label = $mod;
 
     my $table_name = join '_', reverse split /::/, $mod;
@@ -222,7 +226,7 @@ sub generate_table_from_module {
         my $col_type = $cols->{$col_name};
         if ($col_type =~ /^\*/) {
             # a reference
-            $self->generate_reference_table( $col_type, $tables );
+            $self->generate_reference_table( $col_type );
             push @column_sql, "$col_name BIGINT UNSIGNED";
         } else {
             # a scalar
@@ -246,11 +250,11 @@ sub generate_tables_sql {
     my ($self, $base_obj_package) = @_;
     my $store = $self->{store};
     
-    my $tables = {}; #  table name -> { table data }
+    my $tables = $self->{tables} = {}; #  table name -> { table data }
     my @mods = $self->find_obj_packages( $base_obj_package );
 
     for my $mod (@mods) {
-        $self->generate_table_from_module( $mod, $tables );
+        $self->generate_table_from_module( $mod );
     }
 
     # now we have table definitions and sql
