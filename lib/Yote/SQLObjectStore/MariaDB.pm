@@ -18,6 +18,11 @@ sub insert_or_replace {
     'REPLACE ';
 }
 
+sub insert_or_ignore {
+    'INSERT IGNORE ';
+}
+
+
 sub new {
     my ($pkg, %args ) = @_;
     $args{ROOT_PACKAGE} //= 'Yote::SQLObjectStore::MariaDB::Root';
@@ -28,8 +33,8 @@ sub connect_sql {
     my ($pkg,%args) = @_;
     
     my $dbh = DBI->connect( "DBI:MariaDB".($args{dbname} ? ":dbname=$args{dbname}" : ""),
-                            $args{username} || 'wolf', 
-                            $args{password} || 'boogers', 
+                            $args{username},
+                            $args{password},
                             { PrintError => 0 } );
     die "$@ $!" unless $dbh;
     

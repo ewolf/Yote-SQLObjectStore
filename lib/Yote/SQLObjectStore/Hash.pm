@@ -26,27 +26,27 @@ sub slice {
     return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
 
 
-    my $data = $self->data;
-    if (!$self->has_first_save) {
-        # if this has not had its first save, use the data hash rather than the table
-#print STDERR Data::Dumper->Dump([{ map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys },"SLUICER2"]);
-        return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
-    }
+#     my $data = $self->data;
+#     if (!$self->has_first_save) {
+#         # if this has not had its first save, use the data hash rather than the table
+# #print STDERR Data::Dumper->Dump([{ map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys },"SLUICER2"]);
+#         return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
+#     }
 
-    my $table = $self->table;
+#     my $table = $self->table;
 
-    my $slice = {};
-    my $sql = "SELECT hashkey,val FROM $table WHERE id=? AND (". join(' OR ', ('hashkey=?') x @keys).")";
+#     my $slice = {};
+#     my $sql = "SELECT hashkey,val FROM $table WHERE id=? AND (". join(' OR ', ('hashkey=?') x @keys).")";
 
-    $store->apply_query_array( $sql,
-                               [$self->id, @keys],
-                               sub  {
-                                   my ($k, $v) = @_;
-                                   # if the key exists in the data, it may mean that there is an override here
-                                   $slice->{$k} = $store->xform_out( exists $data->{$k} ? $data->{$k} : $v, $value_type );
-                               } );
-#print STDERR Data::Dumper->Dump([$slice,"SLUICER3"]);
-    return $slice;
+#     $store->apply_query_array( $sql,
+#                                [$self->id, @keys],
+#                                sub  {
+#                                    my ($k, $v) = @_;
+#                                    # if the key exists in the data, it may mean that there is an override here
+#                                    $slice->{$k} = $store->xform_out( exists $data->{$k} ? $data->{$k} : $v, $value_type );
+#                                } );
+# #print STDERR Data::Dumper->Dump([$slice,"SLUICER3"]);
+#     return $slice;
 }
 
 sub clear {

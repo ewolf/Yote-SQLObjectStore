@@ -222,7 +222,7 @@ sub generate_table_from_module {
     my %column_defs;
 
     my $cols = $mod->cols;
-    for my $col_name (keys %$cols) {
+    for my $col_name (sort keys %$cols) {
         my $col_type = $cols->{$col_name};
         if ($col_type =~ /^\*/) {
             # a reference
@@ -281,16 +281,17 @@ sub tables_sql_updates {
             my $needs_new_version = 1;
 
             my ($has_tables) = $store->has_table('TableVersions');
+
             if ($has_tables) {
-                my ($count) = $store->query_line( "SELECT COUNT(*) FROM TableVersions WHERE name=? AND create_table=?", $table_name, $create );
-                if ($count > 0) {
+                my ($has_version) = $store->query_line( "SELECT COUNT(*) FROM TableVersions WHERE name=? AND create_table=?", $table_name, $create );
+                if ($has_version) {
                     $needs_new_version = 0;
+                } else {
                     ($version) = $store->query_line( "SELECT MAX(version) FROM TableVersions WHERE name=?", $table_name );
                     my ($old_table) = $store->query_line( "SELECT create_table FROM TableVersions WHERE name=? AND version=?", $table_name, $version );
                     if ($old_table) {
-                        
                         # extract and compare the columns
-                        my ($old_columns_defs) = ($old_table =~ /^[^(]*\([^)]+\)/s);
+                        my ($old_columns_defs) = ($old_table =~ /^[^(]*\((.*)\)$/s);
                         my $old_columns = Set::Scalar->new;
                         my %old_columns;
                         for my $col (split ',', $old_columns_defs) {
@@ -298,7 +299,7 @@ sub tables_sql_updates {
                             my ($name, $def) = split /\s+/, $col, 2;
                             $old_columns{$name} = $def;
                         }
-                        my ($new_columns_defs) = ($create =~ /^[^(]*\([^)]+\)/s);
+                        my ($new_columns_defs) = ($create =~ /^[^(]*\((.*)\)$/s);
                         my $new_columns = Set::Scalar->new;
                         my %new_columns;
                         for my $col (split ',', $new_columns_defs) {
@@ -309,7 +310,6 @@ sub tables_sql_updates {
 
                         my $signatures_uniq_to_new = $new_columns->difference($old_columns);
                         my $signatures_uniq_to_old = $old_columns->difference($new_columns);
-
                         my %seen;
 
                         for my $col (@$signatures_uniq_to_new) {
@@ -322,24 +322,23 @@ sub tables_sql_updates {
                                 # update the column. is a list. for example sqlite needs more than one sql commands
                                 # to change a column
                                 my @update_sql = $self->change_column( $table_name, $col_name, $col_def );
-                                push @sql, @update_sql;
+                                push @sql, [@update_sql];
                             } 
                             else { 
                                 #this column is new
                                 my @new_sql = $self->new_column( $table_name, $col_name, $col_def );
-                                push @sql, @new_sql;
+                                push @sql, [@new_sql];
                             }
                         }
 
                         for my $col (@$signatures_uniq_to_old) {
                             # columns to archive
                             my ($col_name, $col_def) = split /\s+/, $col, 2;
-                            my @new_sql = $self->archive_column( $table_name, $col_name );
-                            push @sql, @new_sql;
+                            my @new_sql = $self->archive_column( $table_name, $col_name, $col_def );
+                            push @sql, [@new_sql];
 
                         }
                     }
-                } else {
                     # brand new table;
                     push @sql, [$create];
                 }
@@ -351,7 +350,7 @@ sub tables_sql_updates {
                 $version = 1 + ($version // 0);
                 push @sql, ["INSERT INTO TableVersions (name,version,create_table) VALUES (?,?,?)",
                             $table_name, $version, $create ];
-                push @sql, ["INSERT IGNORE INTO TableDefs (name,version) VALUES (?,?)", $table_name, $version ];
+                push @sql, [$store->insert_or_ignore." INTO TableDefs (name,version) VALUES (?,?)", $table_name, $version ];
             }
         }
     }

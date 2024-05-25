@@ -396,6 +396,29 @@ subtest 'reference and reopen test' => sub {
         is (@$val_array, 101, 'val array is now 101 long' );
     }
 
+    {
+        my $object_store = Yote::SQLObjectStore::SQLite->new(
+            BASE_DIRECTORY => $dir,
+            );
+        $object_store->open;
+        my ($sql) = $object_store->query_line( "SELECT sql FROM sqlite_schema WHERE name='SomeThing_SQLite'" );
+
+        is ($sql,'CREATE TABLE SomeThing_SQLite (id BIGINT UNSIGNED PRIMARY KEY,brother BIGINT UNSIGNED,lolov BIGINT UNSIGNED,name VALUE,sister BIGINT UNSIGNED,sisters BIGINT UNSIGNED,sisters_hash BIGINT UNSIGNED,some_ref_array BIGINT UNSIGNED,some_ref_hash BIGINT UNSIGNED,some_val_array BIGINT UNSIGNED,some_val_hash BIGINT UNSIGNED,something BIGINT UNSIGNED,tagline VALUE)', 'initial something table' );
+    }
+    {
+
+        $SQLite::SomeThing::cols{newname} = 'VALUE';
+        delete $SQLite::SomeThing::cols{brother};
+        my $object_store = Yote::SQLObjectStore::SQLite->new(
+            BASE_DIRECTORY => $dir,
+            );
+
+        $object_store->make_all_tables;
+        $object_store->open;
+        my ($sql) = $object_store->query_line( "SELECT sql FROM sqlite_schema WHERE name='SomeThing_SQLite'" );
+        is ($sql,'CREATE TABLE SomeThing_SQLite (id BIGINT UNSIGNED PRIMARY KEY,brother_DELETED BIGINT UNSIGNED,lolov BIGINT UNSIGNED,name VALUE,sister BIGINT UNSIGNED,sisters BIGINT UNSIGNED,sisters_hash BIGINT UNSIGNED,some_ref_array BIGINT UNSIGNED,some_ref_hash BIGINT UNSIGNED,some_val_array BIGINT UNSIGNED,some_val_hash BIGINT UNSIGNED,something BIGINT UNSIGNED,tagline VALUE, newname VALUE)', 'something table after columns changed' );
+
+    }
 
 };
 

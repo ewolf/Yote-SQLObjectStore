@@ -23,9 +23,9 @@ sub slice {
         return [@$tied_array[$idx..$to_idx]];
     }
     
-
     # convert to numbers
     $idx = int $idx;
+    no warnings 'uninitialized';
     $length = int $length;
     my $LIMIT = $length > 0 ? " LIMIT $idx, $length" : " LIMIT $idx";
 

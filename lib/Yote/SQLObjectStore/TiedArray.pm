@@ -43,6 +43,7 @@ sub STORE {
     my $oldval = $data->[$idx];
     my $blessed_array = $self->blessed_array;
     my $inval = $blessed_array->store->xform_in( $val, $blessed_array->{value_type} );
+    no warnings 'uninitialized';
     ( $inval ne $oldval ) && $blessed_array->dirty;
     $blessed_array->data->[$idx] = $data->[$idx] = $inval;
     return $val;

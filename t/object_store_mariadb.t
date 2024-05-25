@@ -407,6 +407,70 @@ subtest 'reference and reopen test' => sub {
         is (@$val_array, 101, 'val array is now 101 long' );
     }
 
+    {
+        my $object_store = Yote::SQLObjectStore::MariaDB->new(
+            dbname => $db_handle,
+            %args,
+            );
+
+        $object_store->open;
+        my $dbh = $object_store->dbh;
+        my $sth = $dbh->prepare( "SHOW CREATE TABLE SomeThing_MariaDB" );
+        $sth->execute;
+        my $sql = $sth->fetchall_arrayref->[0][1];
+        ok ( 0 == index( $sql, 'CREATE TABLE `SomeThing_MariaDB` (
+  `id` bigint(20) unsigned NOT NULL,
+  `brother` bigint(20) unsigned DEFAULT NULL,
+  `lolov` bigint(20) unsigned DEFAULT NULL,
+  `name` varchar(100) DEFAULT NULL,
+  `sister` bigint(20) unsigned DEFAULT NULL,
+  `sisters` bigint(20) unsigned DEFAULT NULL,
+  `sisters_hash` bigint(20) unsigned DEFAULT NULL,
+  `some_ref_array` bigint(20) unsigned DEFAULT NULL,
+  `some_ref_hash` bigint(20) unsigned DEFAULT NULL,
+  `some_val_array` bigint(20) unsigned DEFAULT NULL,
+  `some_val_hash` bigint(20) unsigned DEFAULT NULL,
+  `something` bigint(20) unsigned DEFAULT NULL,
+  `tagline` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+)'), 'sql for something table' );
+
+
+    }
+    {
+
+        $MariaDB::SomeThing::cols{newname} = 'VARCHAR(100)';
+        delete $MariaDB::SomeThing::cols{brother};
+        my $object_store = Yote::SQLObjectStore::MariaDB->new(
+            dbname => $db_handle,
+            %args,
+            );
+
+        $object_store->make_all_tables;
+        $object_store->open;
+
+        my $dbh = $object_store->dbh;
+        my $sth = $dbh->prepare( "SHOW CREATE TABLE SomeThing_MariaDB" );
+        $sth->execute;
+        my $sql = $sth->fetchall_arrayref->[0][1];
+        ok ( 0 == index( $sql, 'CREATE TABLE `SomeThing_MariaDB` (
+  `id` bigint(20) unsigned NOT NULL,
+  `brother_DELETED` bigint(20) unsigned DEFAULT NULL,
+  `lolov` bigint(20) unsigned DEFAULT NULL,
+  `name` varchar(100) DEFAULT NULL,
+  `sister` bigint(20) unsigned DEFAULT NULL,
+  `sisters` bigint(20) unsigned DEFAULT NULL,
+  `sisters_hash` bigint(20) unsigned DEFAULT NULL,
+  `some_ref_array` bigint(20) unsigned DEFAULT NULL,
+  `some_ref_hash` bigint(20) unsigned DEFAULT NULL,
+  `some_val_array` bigint(20) unsigned DEFAULT NULL,
+  `some_val_hash` bigint(20) unsigned DEFAULT NULL,
+  `something` bigint(20) unsigned DEFAULT NULL,
+  `tagline` varchar(200) DEFAULT NULL,
+  `newname` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+)'), 'sql for something table' );
+    }
 
 };
 

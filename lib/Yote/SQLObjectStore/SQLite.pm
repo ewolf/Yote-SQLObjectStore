@@ -20,6 +20,10 @@ sub insert_or_replace {
     'INSERT OR REPLACE ';
 }
 
+sub insert_or_ignore {
+    'INSERT OR IGNORE ';
+}
+
 
 sub new {
     my ($pkg, %args ) = @_;
