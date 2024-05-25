@@ -283,7 +283,6 @@ sub tables_sql_updates {
             my ($has_tables) = $store->has_table('TableVersions');
             if ($has_tables) {
                 my ($count) = $store->query_line( "SELECT COUNT(*) FROM TableVersions WHERE name=? AND create_table=?", $table_name, $create );
-print STDERR Data::Dumper->Dump(["COUNT <$count>"]);
                 if ($count > 0) {
                     $needs_new_version = 0;
                     ($version) = $store->query_line( "SELECT MAX(version) FROM TableVersions WHERE name=?", $table_name );

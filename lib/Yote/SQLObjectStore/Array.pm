@@ -7,14 +7,6 @@ use Yote::SQLObjectStore::TiedArray;
 
 use base 'Yote::SQLObjectStore::BaseStorable';
 
-sub new {
-    my ($pkg, %args) = @_;
-
-    my $array = $pkg->SUPER::new( %args );
-    $array->{value_type} = $args{value_type};
-    return $array;
-}
-
 sub get {
     my ($self, $idx) = @_;
     $self->slice( $idx, 1 )->[0];

@@ -184,11 +184,11 @@ subtest 'reference and reopen test' => sub {
 
         # give bad a "sister" that is an array ref and "brother" that is array vals
         $bad->set_sister( $object_store->new_array('*ARRAY_*') );
-        $bad->set_brother( $object_store->new_array('*ARRAY_VARCHAR(300)') );
+        $bad->set_brother( $object_store->new_array('*ARRAY_VARCHAR(100)') );
         $bad->set_some_ref_array( $bad->get_sister );
-        $bad->set_some_val_array( $bad->get_brother );
+        $bad->set_some_val_array( $bad->get_brother ); 
         my $bad_ref_hash = $bad->set_some_ref_hash( $object_store->new_hash('*HASH<256>_*') );
-        my $bad_val_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VARCHAR(300)') );
+        my $bad_val_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VARCHAR(100)') );
         my $bad_val_hash = $bad_val_obj->tied_hash;
         $bad_val_hash->{LEEROY} = 'brown';
         is( $bad->get_tagline( "TAGGY" ), "TAGGY", 'set via default get' );
@@ -301,12 +301,12 @@ subtest 'reference and reopen test' => sub {
 
 
         my $bad_val_array = $bad->get_some_val_array;
-        throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/incorrect type '\*ARRAY_\*'/, 'cannot set a ref hash to a ref array';
-        throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*HASH<256>_\*'/, 'cannot set a ref hash to a ref array';
-        throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*HASH<256>_VARCHAR(300)'/, 'cannot set a val array to a val array';
+        throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_\*' for '\*ARRAY_\*'/, 'cannot set a ref hash to a ref array';
+        throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*ARRAY_\*' for '\*HASH<256>_\*'/, 'cannot set a ref array to a hash ref';
+        throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*ARRAY_VARCHAR[(]100[)]' for '\*HASH<256>_VARCHAR[(]100[)]'/, 'cannot set a val array to a val hash';
         throws_ok { $bad->PLUGH } qr/unknown function 'MariaDB::SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
 
-        throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_VARCHAR(300)'/, 'cannot set a val array to a val array';
+        throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_\*' for '\*HASH<256>_VARCHAR[(]100[)]'/, 'cannot set a ref array to a val array';
 
         my $root_val_array = $root_refs->{val_array}->tied_array;
 

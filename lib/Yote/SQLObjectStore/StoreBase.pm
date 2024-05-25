@@ -152,7 +152,6 @@ sub make_all_tables_sql {
 
 sub check_table {
     my ($self, $table_label) = @_;
-    print STDERR Data::Dumper->Dump(["CHECK <$table_label>"]);
     my $manager = $self->get_table_manager;
     $manager->generate_reference_table( $table_label );
     my @sql = $manager->tables_sql_updates;
@@ -294,7 +293,11 @@ sub xform_in_full {
     # check if type is right
     my $field_value;
     if ($type_def =~ /^\*/ && $value) {
-        die "incorrect type '$type_def' for '$value'" unless $self->check_type( $value, $type_def );
+        unless ($self->check_type( $value, $type_def )) {
+            my $checked_type = ref $value && $value->{type};
+            print STDERR Data::Dumper->Dump(["incorrect type '$checked_type' for '$type_def'"]);
+            die "incorrect type '$checked_type' for '$type_def'";
+        }
         $field_value = $value->id;
     } else {
         $field_value = $value;
@@ -509,13 +512,13 @@ sub insert_get_id {
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
- print STDERR Data::Dumper->Dump([$query,\@qparams,"INSERT GET ID ($id)"]);
+# print STDERR Data::Dumper->Dump([$query,\@qparams,"INSERT GET ID ($id)"]);
     return $id;
 }
 
 sub query_all {
     my ($self, $query, @qparams ) = @_;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
@@ -531,23 +534,17 @@ sub query_all {
 
 sub query_do {
     my ($self, $query, @qparams ) = @_;
-    if ($query =~ /CREATE.*SomeThing_SQLite/) {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
-    }
-    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,longmess]);
         die $dbh->errstr;
     }
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,$sth->errstr,"UNDH"]);
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
-    print STDERR Data::Dumper->Dump([$query,\@qparams,$dbh->errstr,"query done, <$id>"]);
     return $id;
 }
 
@@ -561,7 +558,7 @@ sub query_line {
     }
     my @ret = $sth->fetchrow_array;
 
-    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,$self->dbh->errstr,"query line"]);
+#    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,$self->dbh->errstr,"query line"]);
 
     return @ret;
 }
@@ -573,9 +570,7 @@ sub apply_query_array {
     if (!defined $res) {
         die $sth->errstr;
     }
-print STDERR Data::Dumper->Dump([$query,$qparams,"apply query"]);
     while ( my (@arry) = $sth->fetchrow_array ) {
-print STDERR Data::Dumper->Dump([\@arry,"apply query result"]);
         $eachrow_fun->(@arry);
     }
 }
@@ -590,30 +585,33 @@ sub fetch_obj_from_sql {
 
     return undef unless $handle;
 
-    if ($handle =~ /^\*HASH<(\d+)>_(.*)/) {
+    if ($handle =~ /^(\*HASH<(\d+)>_(.*))/) {
         my $hash = Yote::SQLObjectStore::Hash->new(
             ID             => $id,
 
             data           => {},
             type           => $handle,
             has_first_save => 1,
-            key_size       => $1,
+            key_size       => $2,
             store          => $self,
             table          => $self->get_table_manager->label_to_table($handle),
-            value_type     => $2,
+            type           => $1,
+            value_type     => $3,
             );
         $hash->load_from_sql;
         return $hash;
     }
-    elsif ($handle =~ /^\*ARRAY_(.*)/) {
+    elsif ($handle =~ /^(\*ARRAY_(.*))/) {
         return Yote::SQLObjectStore::Array->new(
             ID             => $id,
 
             data           => [],
             has_first_save => 1,
             store          => $self,
+            table_label    => $handle,
             table          => $self->get_table_manager->label_to_table($handle),
-            value_type     => $1,
+            type           => $1,
+            value_type     => $2,
             );
     }
 
@@ -645,7 +643,7 @@ sub fetch_obj_from_sql {
 
 sub check_type {
     my ($self, $value, $type_def) = @_;
-    
+
     $value
         and
         $value->isa( $self->base_obj ) ||

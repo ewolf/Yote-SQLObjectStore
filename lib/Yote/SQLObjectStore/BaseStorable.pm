@@ -26,9 +26,12 @@ sub new {
 
         data           => $data,
         has_first_save => $args{has_first_save} || 0,
+        key_size       => $args{key_size},
         store          => $args{store},
         table          => $args{table},
+        table_label    => $args{table_label},
         type           => $args{type},
+        value_type     => $args{value_type},
     }, $pkg;
 }
 
@@ -37,6 +40,7 @@ sub is_type {
     my $type = $self->{type};
 
     # if an anything reference, any reference type matches
+print STDERR Data::Dumper->Dump([$type,$expected_type,"CHECK"]);
     return 1 if $expected_type eq '*' && $type =~ /^\*/;
 
     return $type eq $expected_type;

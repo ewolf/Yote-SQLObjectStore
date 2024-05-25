@@ -7,16 +7,6 @@ use Yote::SQLObjectStore::TiedHash;
 
 use base 'Yote::SQLObjectStore::BaseStorable';
 
-sub new {
-    my ($pkg, %args) = @_;
-
-    my $hash = $pkg->SUPER::new( %args );
-    for my $fld (qw(value_type key_size)) {
-        $hash->{$fld} = $args{$fld};
-    }
-    return $hash;
-}
-
 sub get {
     my ($self, $key) = @_;
     my $slice = $self->slice( $key );
