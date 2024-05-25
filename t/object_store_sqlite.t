@@ -359,19 +359,7 @@ subtest 'reference and reopen test' => sub {
             );
         $object_store->open;
 
-warn "NEEDS THE TIED ARRAY FOR NOW? LETS DEBUG WHY";
-
-#
-# works if the next statment is uncommented out
-#
-#    $object_store->fetch_path( "/ref_hash/ref_array" )->tied_array;
-#
-
-#print STDERR Data::Dumper->Dump([$object_store->fetch_path( "/ref_hash/ref_array" ), "REFA"]);BAIL_OUT( "NINDS");
-#print STDERR Data::Dumper->Dump([$object_store->fetch_path( "/ref_hash/ref_array[3]" ),'SMURG']);BAIL_OUT( "NINDS");
-$object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array" )->tied_array;
-#        print STDERR Data::Dumper->Dump([$object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array" )]);BAIL_OUT( "NINDS");
-
+        #$object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array" )->tied_array;
 
         my $bad = $object_store->fetch_path( "/ref_hash/ref_array[3]" );
         is_deeply( $object_store->fetch_path( "/ref_hash/ref_array[3]/some_val_array[100]" ), "ONEHUND", 'fetched path containing indexes array value' );
