@@ -395,7 +395,7 @@ subtest 'reference and reopen test' => sub {
 
 done_testing;
 
-$factory->teardown;
+#$factory->teardown;
 exit;
 
 package Factory;
@@ -434,12 +434,7 @@ sub setup {
     my $self = shift;
     my $dbh = $self->{dbh} = Yote::SQLObjectStore::MariaDB->connect_sql(dbname=>'information_schema',%{$self->{args}});
     if ($dbh) {
-        $self->{dbh} = $dbh;
-
-        my $name = $self->new_db_name;
-        $dbh->do( "CREATE DATABASE $name" );
-        $dbh->do( "DROP DATABASE _test_yote_1" );
-        return $name;
+        return $self->{dbh} = $dbh;
     }
     die "Unable to run setup";
 }

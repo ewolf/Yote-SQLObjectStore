@@ -12,6 +12,10 @@ use DBI;
 use overload
     '""' => sub { my $self = shift; "$self->{OPTIONS}{BASE_DIRECTORY}/SQLITE.db" };
 
+sub base_obj {
+    'Yote::SQLObjectStore::SQLite::Obj';
+}
+
 sub new {
     my ($pkg, %args ) = @_;
     $args{ROOT_PACKAGE} //= 'Yote::SQLObjectStore::SQLite::Root';
@@ -39,28 +43,6 @@ sub connect_sql {
     
     return $dbh;
     
-}
-
-# given a thing and its type definition
-# return it and its internal value which will
-# either be an object id or a string value
-sub make_all_tables_sql {
-    my $self = shift;
-    my $manager = $self->get_table_manager;
-    my @sql = $manager->generate_tables_sql( 'Yote::SQLObjectStore::SQLite::Obj' );
-    return @sql;
-}
-
-sub check_type {
-    my ($self, $value, $type_def) = @_;
-    
-    $value
-        and
-        $value->isa( 'Yote::SQLObjectStore::SQLite::Obj' ) ||
-        $value->isa( 'Yote::SQLObjectStore::Array' ) ||
-        $value->isa( 'Yote::SQLObjectStore::Hash' ) 
-        and
-        $value->is_type( $type_def );
 }
 
 sub has_table {

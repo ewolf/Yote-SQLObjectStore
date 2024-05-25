@@ -1,0 +1,9 @@
+*~
+*#
+blib
+Makefile
+Build
+*.bak
+MYMETA.*
+MANIFEST
+_build

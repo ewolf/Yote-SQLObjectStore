@@ -137,11 +137,20 @@ sub make_all_tables {
     $self->query_do( "BEGIN" );
     for my $s (@sql) {
         my ($query, @qparams) = @$s;
-#        print STDERR "MAKING > $query\n";
+        print STDERR "MAKING > $query\n";
         $self->query_do( $query, @qparams );
     }
     $self->query_do( "COMMIT" );
 }
+
+sub make_all_tables_sql {
+    my $self = shift;
+    my $manager = $self->get_table_manager;
+    my @sql = $manager->generate_tables_sql( $self->base_obj );
+    return @sql;
+}
+
+
 
 sub new_obj($*@) {
     my ($self, $pkg, %args) = @_;
@@ -480,13 +489,13 @@ sub insert_get_id {
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
-# print STDERR Data::Dumper->Dump([$query,\@qparams,"INSERT GET ID ($id)"]);
+ print STDERR Data::Dumper->Dump([$query,\@qparams,"INSERT GET ID ($id)"]);
     return $id;
 }
 
 sub query_all {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,"query_all"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
@@ -502,7 +511,7 @@ sub query_all {
 
 sub query_do {
     my ($self, $query, @qparams ) = @_;
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
     if (!defined $sth) {
@@ -527,7 +536,7 @@ sub query_line {
     }
     my @ret = $sth->fetchrow_array;
 
-#    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,"query line"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,"query line"]);
 
     return @ret;
 }
@@ -539,9 +548,9 @@ sub apply_query_array {
     if (!defined $res) {
         die $sth->errstr;
     }
-#print STDERR Data::Dumper->Dump([$query,$qparams,"apply query"]);
+print STDERR Data::Dumper->Dump([$query,$qparams,"apply query"]);
     while ( my (@arry) = $sth->fetchrow_array ) {
-#print STDERR Data::Dumper->Dump([\@arry,"apply query result"]);
+print STDERR Data::Dumper->Dump([\@arry,"apply query result"]);
         $eachrow_fun->(@arry);
     }
 }
@@ -607,6 +616,18 @@ sub fetch_obj_from_sql {
         );
 
     return $obj;
+}
+
+sub check_type {
+    my ($self, $value, $type_def) = @_;
+    
+    $value
+        and
+        $value->isa( $self->base_obj ) ||
+        $value->isa( 'Yote::SQLObjectStore::Array' ) ||
+        $value->isa( 'Yote::SQLObjectStore::Hash' ) 
+        and
+        $value->is_type( $type_def );
 }
 
 "BUUG";
