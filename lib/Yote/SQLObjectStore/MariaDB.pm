@@ -15,7 +15,7 @@ sub base_obj {
 }
 
 sub insert_or_replace {
-    'INSERT REPLACE ';
+    'REPLACE ';
 }
 
 sub new {

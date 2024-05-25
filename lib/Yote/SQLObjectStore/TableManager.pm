@@ -248,7 +248,6 @@ sub generate_table_from_module {
 
 sub generate_tables_sql {
     my ($self, $base_obj_package) = @_;
-    my $store = $self->{store};
     
     my $tables = $self->{tables} = {}; #  table name -> { table data }
     my @mods = $self->find_obj_packages( $base_obj_package );
@@ -263,9 +262,19 @@ sub generate_tables_sql {
         [$self->create_table_defs_sql],
         [$self->create_table_versions_sql],
         );
+    push @sql, $self->tables_sql_updates;
+    @sql;
+}
 
+sub tables_sql_updates {
+    my $self = shift;
+    my $tables = $self->{tables};
+    my $store = $self->{store};
+
+    my @sql;
     for my $table (values %$tables) {
         if (my $create = $table->{create_table_sql}) {
+            next if $table->{was_generated}++;
             my $table_name = $table->{table_name};
 
             my $version;
@@ -274,9 +283,9 @@ sub generate_tables_sql {
             my ($has_tables) = $store->has_table('TableVersions');
             if ($has_tables) {
                 my ($count) = $store->query_line( "SELECT COUNT(*) FROM TableVersions WHERE name=? AND create_table=?", $table_name, $create );
+print STDERR Data::Dumper->Dump(["COUNT <$count>"]);
                 if ($count > 0) {
                     $needs_new_version = 0;
-                } else {
                     ($version) = $store->query_line( "SELECT MAX(version) FROM TableVersions WHERE name=?", $table_name );
                     my ($old_table) = $store->query_line( "SELECT create_table FROM TableVersions WHERE name=? AND version=?", $table_name, $version );
                     if ($old_table) {
@@ -331,10 +340,12 @@ sub generate_tables_sql {
 
                         }
                     }
+                } else {
+                    # brand new table;
+                    push @sql, [$create];
                 }
             } else {
                 # brand new table;
-print STDERR Data::Dumper->Dump([$create,"CREATY"]);
                 push @sql, [$create];
             }
             if ($needs_new_version) {

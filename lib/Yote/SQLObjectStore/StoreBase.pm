@@ -150,7 +150,20 @@ sub make_all_tables_sql {
     return @sql;
 }
 
-
+sub check_table {
+    my ($self, $table_label) = @_;
+    print STDERR Data::Dumper->Dump(["CHECK <$table_label>"]);
+    my $manager = $self->get_table_manager;
+    $manager->generate_reference_table( $table_label );
+    my @sql = $manager->tables_sql_updates;
+    $self->query_do( "BEGIN" );
+    for my $s (@sql) {
+        my ($query, @qparams) = @$s;
+        print STDERR "MAKING > $query\n";
+        $self->query_do( $query, @qparams );
+    }
+    $self->query_do( "COMMIT" );
+}
 
 sub new_obj($*@) {
     my ($self, $pkg, %args) = @_;
@@ -162,13 +175,15 @@ sub new_obj($*@) {
 
     my $id = $self->next_id( $table );
 
+    $self->check_table($pkg);
+
     my $obj_data = {};
     my $obj = $pkg->new( 
         ID    => $id,
 
         data  => $obj_data,
         store => $self,
-        table => $self->get_table_manager->label_to_table($pkg),
+        table => $table,
         type  => "*$pkg",
         
         %args );
@@ -202,13 +217,16 @@ sub new_hash {
 
     my $data = {};
 
+    $self->check_table($type);
+    my $table = $self->get_table_manager->label_to_table($type);
+
     my $hash = Yote::SQLObjectStore::Hash->new(
         ID         => $id,
         
         data       => $data,
         key_size   => $key_size,
         store      => $self,
-        table      => $self->get_table_manager->label_to_table($type),
+        table      => $table,
         type       => $type,
         value_type => $value_type,
         );
@@ -230,15 +248,13 @@ sub new_array {
 
     die "Cannot create array of type '$type'" unless $value_type;
 
-
     my $id = $self->next_id( $type );
 
     my $data = [];
 
+    $self->check_table($type);
     my $table = $self->get_table_manager->label_to_table($type);
 
-    
-    
     my $array = Yote::SQLObjectStore::Array->new(
         ID    => $id,
         
@@ -531,6 +547,7 @@ use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,$sth->err
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
+    print STDERR Data::Dumper->Dump([$query,\@qparams,$dbh->errstr,"query done, <$id>"]);
     return $id;
 }
 
@@ -544,7 +561,7 @@ sub query_line {
     }
     my @ret = $sth->fetchrow_array;
 
-    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,"query line"]);
+    print STDERR Data::Dumper->Dump([$query,\@qparams,\@ret,$self->dbh->errstr,"query line"]);
 
     return @ret;
 }

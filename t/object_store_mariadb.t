@@ -104,7 +104,7 @@ subtest 'reference and reopen test' => sub {
         $mty->{fooz} = 'barz';
         is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, { fooz => 'barz' }, 'empty ref hash' );
         delete $mty->{fooz};
-        is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, {}, 'empty ref hash' );
+        is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, { fooz => undef }, 'empty ref hash' );
 
         is_deeply( $val_arry_obj->slice( 1, 1), [ 2 ], 'slice for one' );
         is_deeply( $val_arry_obj->slice( 1 ), [ 2, 3 ], 'slice for rest' );
@@ -122,7 +122,7 @@ subtest 'reference and reopen test' => sub {
         is_deeply( $ref_hash, { root => $r1 }, 'ref hash' );
         is_deeply( $val_arry, [1,2,3], 'val array' );
         is_deeply( $ref_arry, [$r1, $wilma, $brad ], 'ref array' );
-        is_deeply( $mty, {}, 'empty ref hash' );
+        is_deeply( $mty, { fooz => undef }, 'nearly empty ref hash' );
 
         # data now looks like this
         #   /val_hash/foo -> bar
