@@ -92,14 +92,14 @@ subtest 'reference and reopen test' => sub {
         my $brad = $object_store->new_obj( 'MariaDB::SomeThing', name => 'brad', sister => $wilma  );
 
         # make some data structures to put in root ref hash
-        my $val_arry_obj = $object_store->new_array( '*ARRAY_VALUE', 1,2,3 );
+        my $val_arry_obj = $object_store->new_array( '*ARRAY_VARCHAR(234)', 1,2,3 );
         $root_refs->set( 'val_array', $val_arry_obj );
         my $ref_arry = $root_refs->set( 'ref_array', $object_store->new_array( '*ARRAY_*', $r1, $wilma, $brad ))->tied_array;
-        my $val_hash = $root_refs->set( 'val_hash', $object_store->new_hash( '*HASH<256>_VALUE', a => 1, b => 2, c => 3 ))->tied_hash;
+        my $val_hash = $root_refs->set( 'val_hash', $object_store->new_hash( '*HASH<256>_VARCHAR(233)', a => 1, b => 2, c => 3 ))->tied_hash;
 
         my $ref_hash = $root_refs->set( 'ref_hash', $object_store->new_hash( '*HASH<256>_*', root => $r1))->tied_hash;
 
-        my $mty = $root_refs->set( 'empty_hash', $object_store->new_hash( '*HASH<256>_VALUE' ))->tied_hash;
+        my $mty = $root_refs->set( 'empty_hash', $object_store->new_hash( '*HASH<256>_VARCHAR(231)' ))->tied_hash;
 
         $mty->{fooz} = 'barz';
         is_deeply( $root_refs->get( 'empty_hash' )->tied_hash, { fooz => 'barz' }, 'empty ref hash' );
@@ -184,11 +184,11 @@ subtest 'reference and reopen test' => sub {
 
         # give bad a "sister" that is an array ref and "brother" that is array vals
         $bad->set_sister( $object_store->new_array('*ARRAY_*') );
-        $bad->set_brother( $object_store->new_array('*ARRAY_VALUE') );
+        $bad->set_brother( $object_store->new_array('*ARRAY_VARCHAR(300)') );
         $bad->set_some_ref_array( $bad->get_sister );
         $bad->set_some_val_array( $bad->get_brother );
         my $bad_ref_hash = $bad->set_some_ref_hash( $object_store->new_hash('*HASH<256>_*') );
-        my $bad_val_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VALUE') );
+        my $bad_val_obj = $bad->set_some_val_hash( $object_store->new_hash('*HASH<256>_VARCHAR(300)') );
         my $bad_val_hash = $bad_val_obj->tied_hash;
         $bad_val_hash->{LEEROY} = 'brown';
         is( $bad->get_tagline( "TAGGY" ), "TAGGY", 'set via default get' );
@@ -303,10 +303,10 @@ subtest 'reference and reopen test' => sub {
         my $bad_val_array = $bad->get_some_val_array;
         throws_ok { $bad->set_some_ref_array( $bad->get_some_ref_hash ) } qr/incorrect type '\*ARRAY_\*'/, 'cannot set a ref hash to a ref array';
         throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*HASH<256>_\*'/, 'cannot set a ref hash to a ref array';
-        throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
+        throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*HASH<256>_VARCHAR(300)'/, 'cannot set a val array to a val array';
         throws_ok { $bad->PLUGH } qr/unknown function 'MariaDB::SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
 
-        throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
+        throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_VARCHAR(300)'/, 'cannot set a val array to a val array';
 
         my $root_val_array = $root_refs->{val_array}->tied_array;
 
@@ -397,6 +397,7 @@ exit;
 
 package Factory;
 
+use Test::More;
 use Yote::SQLObjectStore::MariaDB;
 
 sub new_db_name {
@@ -416,6 +417,15 @@ sub new_db_handle {
     my $dbh = $self->{dbh};
 
     my $name = $self->new_db_name;
+
+    my $sth = $dbh->prepare( "SHOW DATABASES LIKE ?" );
+    $sth->execute( $name );
+    my $existing = $sth->fetchall_arrayref;
+
+    if ($existing && @$existing) {
+        BAIL_OUT ("could not create database $name. it exists already" );
+    }
+
     my $x = $dbh->do( "CREATE DATABASE $name" );
     return $name;
 
@@ -431,6 +441,7 @@ sub setup {
     my $self = shift;
     my $dbh = $self->{dbh} = Yote::SQLObjectStore::MariaDB->connect_sql(dbname=>'information_schema',%{$self->{args}});
     if ($dbh) {
+        $dbh->do( "DROP DATABASE _test_yote_1" );
         return $self->{dbh} = $dbh;
     }
     die "Unable to run setup";

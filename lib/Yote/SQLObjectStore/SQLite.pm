@@ -16,6 +16,11 @@ sub base_obj {
     'Yote::SQLObjectStore::SQLite::Obj';
 }
 
+sub insert_or_replace {
+    'INSERT OR REPLACE ';
+}
+
+
 sub new {
     my ($pkg, %args ) = @_;
     $args{ROOT_PACKAGE} //= 'Yote::SQLObjectStore::SQLite::Root';

@@ -153,8 +153,9 @@ sub save_sql {
             
         }
         if (@insert_qparams) {
+            my $store = $self->store;
             my $sql = 
-                "INSERT OR REPLACE INTO $table (id,hashkey,val) VALUES " 
+                $store->insert_or_replace." INTO $table (id,hashkey,val) VALUES " 
                 .join( ',', ("(?,?,?)") x @insert_qparams);
             push @ret_sql, [$sql, map { @$_ } @insert_qparams];
         }

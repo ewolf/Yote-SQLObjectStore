@@ -14,6 +14,10 @@ sub base_obj {
     'Yote::SQLObjectStore::MariaDB::Obj';
 }
 
+sub insert_or_replace {
+    'INSERT REPLACE ';
+}
+
 sub new {
     my ($pkg, %args ) = @_;
     $args{ROOT_PACKAGE} //= 'Yote::SQLObjectStore::MariaDB::Root';

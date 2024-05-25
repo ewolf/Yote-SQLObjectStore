@@ -235,12 +235,16 @@ sub new_array {
 
     my $data = [];
 
+    my $table = $self->get_table_manager->label_to_table($type);
+
+    
+    
     my $array = Yote::SQLObjectStore::Array->new(
         ID    => $id,
         
         data  => $data,
         store => $self,
-        table => $self->get_table_manager->label_to_table($type),
+        table => $table,
         type  => $type,
         value_type => $value_type,
 
@@ -511,6 +515,9 @@ sub query_all {
 
 sub query_do {
     my ($self, $query, @qparams ) = @_;
+    if ($query =~ /CREATE.*SomeThing_SQLite/) {
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([longmess]);
+    }
     print STDERR Data::Dumper->Dump([$query,\@qparams,"query do"]);
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare( $query );
@@ -520,7 +527,7 @@ use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,longmess]
     }
     my $res = $sth->execute( @qparams );
     if (!defined $res) {
-use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,"UNDH"]);
+use Carp 'longmess'; print STDERR Data::Dumper->Dump([$query,\@qparams,$sth->errstr,"UNDH"]);
         die $sth->errstr;
     }
     my $id = $dbh->last_insert_id;
