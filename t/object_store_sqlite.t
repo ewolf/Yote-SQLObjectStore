@@ -169,7 +169,21 @@ subtest 'reference and reopen test' => sub {
         is ($object_store->fetch_path( "/ref_hash/ref_array[2]/name" ), 'brad', 'fetched path containing array and value' );
         $brad->set_name( 'new brad' );
         is ($brad->get_name, 'new brad', 'brad new name' );
+        my $mth = $object_store->fetch_path( "/ref_hash/empty_hash" );
+        my $mtth = $mth->tied_hash;
+        is_deeply ($mtth, {}, 'fetched path containing empty hash' );
+        $mth->set( 'NOTEMPTY', 'anymore' );
+        is_deeply( $mtth, { NOTEMPTY => 'anymore' }, 'newly filled formly empty hash' );
+        ok ( $object_store->is_dirty( $mth ), 'no longer empty hash is dirty' );
+        
+        $mth->set('NOTEMPTY');
+        is_deeply( $mtth, { NOTEMPTY => undef }, 'sorta empty formly empty hash' );
+        delete $mtth->{NOTEMPTY};
+        is_deeply( $mtth, { NOTEMPTY => undef }, 'sorta empty formly empty hash was deleted again' );
         $object_store->save;
+
+        ok ( !$object_store->is_dirty( $mth ), 'empty hash no longer dirty after save' );
+        is_deeply( $mtth, {}, 'back to empty hash' );
 
         my $bad = $object_store->new_obj( 'SQLite::SomeThing', name => 'bad', sistery => $wilma  );
         is ($bad->get_sister, undef, 'bad has no sister' );
@@ -242,6 +256,7 @@ subtest 'reference and reopen test' => sub {
         ok (! $object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is not dirty here' );
         %$bad_val_hash = (); #clear it
         ok ($object_store->is_dirty( $bad_val_hash_obj ), 'bad val hash is dirty after clearing it' ); 
+
         # not saving it though, so the clearing wont show up next load
 
 
@@ -299,6 +314,7 @@ subtest 'reference and reopen test' => sub {
         throws_ok { $bad->set_some_ref_hash( $bad->get_some_ref_array ) } qr/incorrect type '\*ARRAY_\*' for '\*HASH<256>_\*'/, 'cannot set a ref hash to a ref array';
         throws_ok { $bad->set_some_val_hash( $bad_val_array ) } qr/incorrect type '\*ARRAY_VALUE' for '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
         throws_ok { $bad->PLUGH } qr/unknown function 'SQLite::SomeThing::PLUGH'/, 'object autoload does not know PLUGH';
+        throws_ok { $bad->set_some_val_hash( "SPOOKEY" ) } qr/incorrect type 'scalar value' for '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
 
         throws_ok { $bad->set_some_val_hash( $bad->get_some_ref_hash ) } qr/incorrect type '\*HASH<256>_\*' for '\*HASH<256>_VALUE'/, 'cannot set a val array to a val array';
 

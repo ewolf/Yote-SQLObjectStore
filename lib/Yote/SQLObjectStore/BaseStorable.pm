@@ -40,7 +40,7 @@ sub is_type {
     my $type = $self->{type};
 
     # if an anything reference, any reference type matches
-    return 1 if $expected_type eq '*' && $type =~ /^\*/;
+    return 1 if $expected_type eq '*';
 
     return $type eq $expected_type;
 }

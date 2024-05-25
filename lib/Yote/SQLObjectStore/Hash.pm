@@ -22,10 +22,9 @@ sub slice {
     my $value_type = $self->{value_type};
     my $store = $self->store;
 
-    if (my $data = $self->{data}) {
-#print STDERR Data::Dumper->Dump([ { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys }, "SLUICER"]);
-        return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
-    }
+    my $data = $self->data;
+    return { map { $_ => $store->xform_out( $data->{$_}, $value_type ) } @keys };
+
 
     my $data = $self->data;
     if (!$self->has_first_save) {
@@ -63,6 +62,7 @@ sub set {
     my ($self, $key, $value) = @_;
     my $data = $self->data;
     my $inval = $self->store->xform_in( $value, $self->{value_type} );
+    no warnings 'uninitialized';
     unless (exists $data->{$key} && $data->{$key} eq $inval) {
         $self->dirty;
         $data->{$key} = $inval;
@@ -75,12 +75,12 @@ sub delete_key {
     my $data = $self->data;
     return undef unless exists $data->{$key};
 
-    if (exists $data->{$key}) {
-        my $val = $data->{$key};
-        $data->{$key} = undef; #set as undef so it will be delete in the db
-        $self->dirty if defined $val;
-        return $self->store->xform_out( $val, $self->{value_type} );
-    }
+    my $val = $data->{$key};
+
+
+    $data->{$key} = undef; #set as undef so it will be delete in the db
+    $self->dirty if defined $val;
+    return $self->store->xform_out( $val, $self->{value_type} );
 }
 
 sub tied_hash {
@@ -132,6 +132,7 @@ sub save_sql {
             if (defined $val) {
                 push @insert_qparams, [$id, $key, $val];
             } else {
+                delete $data->{$key}; #would have been set to undef
                 push @delete_qparams, $key;
             }
         }
@@ -150,6 +151,7 @@ sub save_sql {
             push @ret_sql, [$sql, map { @$_ } @insert_qparams];
         }
     }
+
     return @ret_sql;
 
 }

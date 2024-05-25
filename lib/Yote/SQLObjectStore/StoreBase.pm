@@ -294,7 +294,7 @@ sub xform_in_full {
     my $field_value;
     if ($type_def =~ /^\*/ && $value) {
         unless ($self->check_type( $value, $type_def )) {
-            my $checked_type = ref $value && $value->{type};
+            my $checked_type = (ref $value && $value->{type}) || 'scalar value';
             die "incorrect type '$checked_type' for '$type_def'";
         }
         $field_value = $value->id;
