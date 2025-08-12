@@ -1091,4 +1091,9 @@ sub unlock {
     return $res;
 }
 
+sub set_query_debug {
+    my ($self, $debug) = @_;
+    $QUERY_DEBUG = $debug;
+}
+
 "BUUG";
