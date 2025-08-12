@@ -93,4 +93,25 @@ CREATE TABLE IF NOT EXISTS TableVersions (
 END
 }
 
+
+sub lock {
+    my ($self, $tag, $timeout) = @_;
+    $tag =~ s/'//gs;
+    my ($res) = $self->query_line( "SELECT GET_LOCK(?,?)", $tag, $timeout // 1 );
+    if (! defined $res) {
+        warn "lock failed when called for lock tag '$tag'";
+    }
+    return $res;
+}
+
+sub unlock {
+    my ($self, $tag) = @_;
+    $tag =~ s/'//gs;
+    my ($res) = $self->query_line( "SELECT RELEASE_LOCK(?)", $tag );
+    if (! defined $res) {
+        warn "unlock failed when called for unheld lock tag '$tag'";
+    }
+    return $res;
+}
+
 1;

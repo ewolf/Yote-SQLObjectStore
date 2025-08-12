@@ -1072,23 +1072,15 @@ sub check_type {
 }
 
 sub lock {
-    my ($self, $tag) = @_;
-    $tag =~ s/'//gs;
-    my ($res) = $self->query_line( "SELECT GET_LOCK(?,1)", $tag );
-    if (! defined $res) {
-        warn "lock failed when called for lock tag '$tag'";
-    }
-    return $res;
+    my ($self, $tag, $timeout) = @_;
+    my $manager = $self->get_table_manager;
+    $manager->lock( $tag, $timeout );
 }
 
 sub unlock {
     my ($self, $tag) = @_;
-    $tag =~ s/'//gs;
-    my ($res) = $self->query_line( "SELECT RELEASE_LOCK(?)", $tag );
-    if (! defined $res) {
-        warn "unlock failed when called for unheld lock tag '$tag'";
-    }
-    return $res;
+    my $manager = $self->get_table_manager;
+    $manager->unlock( $tag );
 }
 
 sub set_query_debug {

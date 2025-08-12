@@ -96,6 +96,10 @@ sub save_sql {
     my $table = $self->table_name;
     my @col_names = $self->col_names;
 
+    if( ! $self->has_first_save ) {
+        @col_names = grep { defined $data->{$_} } @col_names;
+    }
+
     my ($sql);
 
     my @qparams = map { $data->{$_} } @col_names;
